@@ -21,6 +21,15 @@ final class NativeReceiver {
             if !enabled { self?.localSkipping = false }
         }
     }
+
+    func reduceBackgroundLoad() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.localVideoEnabled = false
+            self.localSkipping = false
+            self.videoOutput.reduceMemoryUsage()
+        }
+    }
     #if DEBUG
     private var diagnosticStarted = ProcessInfo.processInfo.systemUptime
     private var diagnosticCPU = TailingPerformanceDiagnostics.cpuTime()
@@ -532,8 +541,12 @@ final class NativeReceiver {
             log(CWL("已生成 MFiSAP 响应，正在等待 iPhone 接受"))
             return RTSPResponse(body: body)
         case ("POST", "/feedback"):
-            if let feedback = try state.media?.feedback() {
-                return RTSPResponse(body: feedback, contentType: "application/x-apple-binary-plist")
+            do {
+                if let feedback = try state.media?.feedback() {
+                    return RTSPResponse(body: feedback, contentType: "application/x-apple-binary-plist")
+                }
+            } catch {
+                log(CWL("生成 CarPlay feedback 失败：{1}", [error.localizedDescription]))
             }
             return RTSPResponse()
         case ("POST", "/command"):

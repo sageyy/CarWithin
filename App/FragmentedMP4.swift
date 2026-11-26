@@ -165,7 +165,7 @@ final class CarPlayHLS {
             segments.append(Segment(number: segmentNumber,
                 duration: Double(pendingDuration) / Double(format.timescale), data: pending))
             segmentNumber += 1
-            while segments.count > 12 || segments.reduce(0, { $0 + $1.data.count }) > 32 * 1024 * 1024 {
+            while segments.count > 6 || segments.reduce(0, { $0 + $1.data.count }) > 12 * 1024 * 1024 {
                 segments.removeFirst()
             }
             pending = Data(); pendingFrames = 0; pendingDuration = 0
@@ -185,7 +185,7 @@ final class CarPlayHLS {
             sequence &+= 1
             pendingDuration += UInt64(duration)
             decodeTime += UInt64(duration)
-            if pending.count > 8 * 1024 * 1024 || pendingDuration > UInt64(Self.targetDuration) * UInt64(format.timescale) {
+            if pending.count > 4 * 1024 * 1024 || pendingDuration > UInt64(Self.targetDuration) * UInt64(format.timescale) {
                 discardPending()
             }
         }
@@ -199,6 +199,13 @@ final class CarPlayHLS {
             return .keyframeNeeded
         }
         return .none
+    }
+
+    func trimMemory() {
+        while segments.count > 6 || segments.reduce(0, { $0 + $1.data.count }) > 12 * 1024 * 1024 {
+            segments.removeFirst()
+        }
+        if pendingFrames > 0 { discardPending() }
     }
 
     private func discardPending() {

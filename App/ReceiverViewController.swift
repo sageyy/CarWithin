@@ -744,7 +744,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         pictureInPicture.onFailure = { [weak self] in
             guard let self, self.running else { return }
             if UIApplication.shared.applicationState == .background {
-                if !self.keepAlive.isRunning { self.stop() }
+                if !self.keepAlive.isRunning {
+                    self.stop()
+                } else {
+                    self.degradeBackgroundVideoAfterPiPFailure()
+                }
             } else {
                 self.statusLabel.text = CWL("画中画未开启，可点「画中画」重试")
             }
@@ -752,7 +756,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         pictureInPicture.onStopped = { [weak self] in
             guard let self, self.running else { return }
             if UIApplication.shared.applicationState == .background {
-                if !self.keepAlive.isRunning { self.stop() }
+                if !self.keepAlive.isRunning {
+                    self.stop()
+                } else {
+                    self.degradeBackgroundVideoAfterPiPFailure()
+                }
             } else {
                 self.resumeLocalVideo()
             }
@@ -1996,6 +2004,14 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
         return image.pngData()
     }()
+    private func degradeBackgroundVideoAfterPiPFailure() {
+        guard running else { return }
+        log(CWL("画中画未开启，后台投屏降级：关闭本机显示并压缩缓存"))
+        skippedLocalVideo = true
+        receiver.setLocalVideoEnabled(false)
+        receiver.reduceBackgroundLoad()
+    }
+
     private func resumeLocalVideo() {
         guard running else { return }
         videoSurface.resumeAfterBackground(skippedFrames: skippedLocalVideo)

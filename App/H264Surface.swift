@@ -163,7 +163,7 @@ final class H264Surface: UIView {
             guard now - lastRecovery >= 0.5 else { return }
             recover(reason: CWL("显示层需要恢复：{1}", [String(describing: display.error?.localizedDescription ?? CWL("系统状态变化"))]))
             guard !rendererNeedsRecovery else { return }
-        } else if pending.count >= 30 || pendingBytes > 16 * 1024 * 1024 {
+        } else if pending.count >= 15 || pendingBytes > 8 * 1024 * 1024 {
             recover(reason: CWL("显示积压 {1} 帧", [String(describing: pending.count)]))
         } else if #available(iOS 17.4, *) {
             if display.isReadyForDisplay {

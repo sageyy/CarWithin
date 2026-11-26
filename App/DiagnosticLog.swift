@@ -37,6 +37,20 @@ private let carWithinSignalHandler: @convention(c) (Int32) -> Void = { received 
     raise(received)
 }
 
+enum AppMemoryUsage {
+    static var footprintMB: Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), rebound, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return -1 }
+        return Double(info.phys_footprint) / 1024 / 1024
+    }
+}
+
 final class DiagnosticLogStore {
     static let shared = DiagnosticLogStore()
 
@@ -47,6 +61,7 @@ final class DiagnosticLogStore {
     private let previousURL: URL
     private let crashesURL: URL
     private var handle: FileHandle?
+    private var memoryLogCounter = 0
 
     private init() {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -81,6 +96,10 @@ final class DiagnosticLogStore {
     func append(_ message: String) {
         lock.lock()
         writeLocked("\(timestamp())  \(message)")
+        memoryLogCounter += 1
+        if memoryLogCounter % 30 == 0 {
+            writeLocked(String(format: "[memory] phys_footprint=%.1f MB", AppMemoryUsage.footprintMB))
+        }
         lock.unlock()
     }
 

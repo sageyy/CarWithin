@@ -10,9 +10,16 @@ CarWithin runs CarPlay on the same iPhone that generates its interface. Use CarP
 
 ## Download and install
 
-- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.10 (build 22)**.
-- Download `CarWithin-1.0.10-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
+- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.11 (build 23)**.
+- Download `CarWithin-1.0.11-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
 - The minimum installation target is iOS/iPadOS 16.0 on arm64; iOS 15 is not supported. Same-device CarPlay, audio, and background behavior still need testing on iOS 16.x hardware. CarWithin uses private iOS interfaces. Compatibility depends on the device, OS version, and signing setup, and OS updates can affect it.
+
+## What is new in 1.0.11
+
+- When Picture-in-Picture fails in the background, the app now degrades proactively: local display is disabled and browser/HLS caches are compressed, preserving output to the dashboard.
+- Lowered video cache high-water marks: GOP 24MB to 8MB, HLS 32MB to 12MB, per-client pending 16MB to 8MB, local display queue 30 frames to 15 frames.
+- Diagnostic logs now include `phys_footprint` every 30 log entries to detect steady memory growth.
+- CarPlay feedback serialization errors are logged and return an empty response instead of affecting the control connection.
 
 ## What is new in 1.0.10
 

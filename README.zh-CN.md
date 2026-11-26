@@ -10,9 +10,16 @@ CarWithin 在同一台 iPhone 上启动、显示和触控本机 CarPlay。你可
 
 ## 下载与安装
 
-- [从 GitHub Releases 下载](https://github.com/xmz28/CarWithin/releases/latest)。当前版本为 **1.0.10（构建 22）**。
-- 下载 `CarWithin-1.0.10-unsigned.ipa`，用支持 IPA 的侧载工具按自己的签名方式签名并安装。按设备提示完成开发者信任或开启开发者模式。
+- [从 GitHub Releases 下载](https://github.com/xmz28/CarWithin/releases/latest)。当前版本为 **1.0.11（构建 23）**。
+- 下载 `CarWithin-1.0.11-unsigned.ipa`，用支持 IPA 的侧载工具按自己的签名方式签名并安装。按设备提示完成开发者信任或开启开发者模式。
 - 最低安装目标为 iOS/iPadOS 16.0，arm64；iOS 15 不支持安装。安装目标降低不等于所有旧系统均已实测，iOS 16.x 的本机 CarPlay、声音和后台行为仍需对应设备验证。实际可用性取决于设备、系统版本和签名方式。CarWithin 使用 iOS 私有接口，系统升级后可能需要重新验证。
+
+## 1.0.11 更新
+
+- 画中画在后台启动失败时主动降级：关闭本机显示并压缩浏览器/HLS 缓存，只保留必要的仪表投屏输出。
+- 降低视频缓存高水位：GOP 24MB→8MB、HLS 32MB→12MB、每客户端待发 16MB→8MB、本机显示队列 30 帧→15 帧。
+- 诊断日志每 30 条记录一次 `phys_footprint`，便于确认是否存在持续内存增长。
+- CarPlay feedback 序列化失败时只记录日志并返回空响应，不影响控制连接。
 
 ## 1.0.10 更新
 

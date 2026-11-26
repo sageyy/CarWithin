@@ -81,7 +81,7 @@ final class VideoOutputServer {
     /// Frames from the latest random-access picture onward, so late viewers start at once.
     private var gop: [Frame] = []
     private var gopBytes = 0
-    private let maximumGOPBytes = 24 * 1024 * 1024
+    private let maximumGOPBytes = 8 * 1024 * 1024
     private var width = 1280
     private var height = 720
     private var fps = 60
@@ -90,7 +90,7 @@ final class VideoOutputServer {
     /// Above this backlog a viewer skips to the next keyframe (about 0.5 s of 4K video).
     private let skipPendingBytes = 2 * 1024 * 1024
     /// Above this backlog the socket is considered dead and closed.
-    private let maximumPendingBytes = 16 * 1024 * 1024
+    private let maximumPendingBytes = 8 * 1024 * 1024
     /// A late viewer replays the cached GOP only when it is short; otherwise it asks for a new IDR,
     /// so it does not start seconds behind live or decode a huge burst first.
     private let maximumReplayFrames = 45
@@ -165,6 +165,16 @@ final class VideoOutputServer {
     }
 
     func stop() { queue.async { [weak self] in self?.stopOnQueue() } }
+
+    func reduceMemoryUsage() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.gop.removeAll(keepingCapacity: false)
+            self.gopBytes = 0
+            self.hls?.trimMemory()
+            self.onLog?(CWL("后台降级：浏览器 GOP 与 HLS 缓存已压缩"))
+        }
+    }
 
     // MARK: Listener
 
