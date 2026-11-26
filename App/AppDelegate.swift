@@ -34,7 +34,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         self.window = window
     }
 
+    func sceneWillEnterForeground(_ scene: UIScene) {
+        DiagnosticLogStore.shared.markForeground()
+        DiagnosticLogStore.shared.flush()
+    }
+
     func sceneDidEnterBackground(_ scene: UIScene) {
+        DiagnosticLogStore.shared.markBackground()
         DiagnosticLogStore.shared.flush()
     }
 

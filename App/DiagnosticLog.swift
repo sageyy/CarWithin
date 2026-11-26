@@ -79,7 +79,7 @@ final class DiagnosticLogStore {
         lock.lock()
         closeHandleLocked()
         let lastSessionText = readTextLocked(currentURL)
-        if !lastSessionText.isEmpty && !lastSessionText.contains("[session] 正常退出") {
+        if !lastSessionText.isEmpty && isAbnormalExit(lastSessionText) {
             writeAbnormalExitReportLocked(lastSessionText)
         }
         if fileManager.fileExists(atPath: currentURL.path) {
@@ -103,8 +103,24 @@ final class DiagnosticLogStore {
         lock.unlock()
     }
 
+    func markBackground() {
+        append("[session] 已进入后台")
+    }
+
+    func markForeground() {
+        append("[session] 已回到前台")
+    }
+
     func markCleanExit() {
         append("[session] 正常退出")
+    }
+
+    private func isAbnormalExit(_ text: String) -> Bool {
+        if text.contains("[session] 正常退出") { return false }
+        let enteredBackground = text.contains("[session] 已进入后台")
+        let returnedForeground = text.contains("[session] 已回到前台")
+        // 进入后台后未再回到前台属于 iOS 后台回收，不算异常退出。
+        return !enteredBackground || returnedForeground
     }
 
     func flush() {
