@@ -4,6 +4,39 @@ import UIKit
 import Darwin
 #endif
 
+private var carWithinCrashURL: URL?
+private var carWithinCrashHeader = ""
+
+private func carWithinWriteReport(_ text: String) {
+    guard let url = carWithinCrashURL else { return }
+    let report = text + "\n"
+    try? report.write(to: url, atomically: true, encoding: .utf8)
+}
+
+private let carWithinExceptionHandler: @convention(c) (NSException) -> Void = { exception in
+    let reason = exception.reason ?? "unknown"
+    let symbols = exception.callStackSymbols.joined(separator: "\n")
+    carWithinWriteReport("""
+    \(carWithinCrashHeader)
+    ==== CarWithin NSException ====
+    name=\(exception.name.rawValue)
+    reason=\(reason)
+    \(symbols)
+    """)
+    _exit(1)
+}
+
+private let carWithinSignalHandler: @convention(c) (Int32) -> Void = { received in
+    let symbols = Thread.callStackSymbols.joined(separator: "\n")
+    carWithinWriteReport("""
+    \(carWithinCrashHeader)
+    ==== CarWithin signal \(received) ====
+    \(symbols)
+    """)
+    signal(received, SIG_DFL)
+    raise(received)
+}
+
 final class DiagnosticLogStore {
     static let shared = DiagnosticLogStore()
 
@@ -195,47 +228,16 @@ final class DiagnosticLogStore {
 
 enum CrashReporter {
     private static var installed = false
-    private static var crashURL: URL?
-    private static var headerText = ""
 
     static func install() {
         guard !installed else { return }
         installed = true
-        crashURL = DiagnosticLogStore.shared.prepareCrashReportURL()
-        headerText = DiagnosticLogStore.shared.crashHeader()
+        carWithinCrashURL = DiagnosticLogStore.shared.prepareCrashReportURL()
+        carWithinCrashHeader = DiagnosticLogStore.shared.crashHeader()
 
-        let signals = [SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL]
-
-        NSSetUncaughtExceptionHandler { exception in
-            let reason = exception.reason ?? "unknown"
-            let symbols = exception.callStackSymbols.joined(separator: "\n")
-            writeReport("""
-            \(headerText)
-            ==== CarWithin NSException ====
-            name=\(exception.name.rawValue)
-            reason=\(reason)
-            \(symbols)
-            """)
-            _exit(1)
+        NSSetUncaughtExceptionHandler(carWithinExceptionHandler)
+        for signalNumber in [SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL] {
+            signal(signalNumber, carWithinSignalHandler)
         }
-
-        for signalNumber in signals {
-            signal(signalNumber) { received in
-                let symbols = Thread.callStackSymbols.joined(separator: "\n")
-                writeReport("""
-                \(headerText)
-                ==== CarWithin signal \(received) ====
-                \(symbols)
-                """)
-                signal(received, SIG_DFL)
-                raise(received)
-            }
-        }
-    }
-
-    private static func writeReport(_ text: String) {
-        guard let url = crashURL else { return }
-        let report = text + "\n"
-        try? report.write(to: url, atomically: true, encoding: .utf8)
     }
 }
