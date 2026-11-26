@@ -2,6 +2,12 @@ import UIKit
 
 @main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        DiagnosticLogStore.shared.startSession()
+        CrashReporter.install()
+        return true
+    }
+
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
         let configuration = UISceneConfiguration(name: "Receiver", sessionRole: connectingSceneSession.role)
@@ -26,5 +32,14 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = navigation
         window.makeKeyAndVisible()
         self.window = window
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        DiagnosticLogStore.shared.flush()
+    }
+
+    func sceneWillTerminate(_ scene: UIScene) {
+        DiagnosticLogStore.shared.markCleanExit()
+        DiagnosticLogStore.shared.flush()
     }
 }

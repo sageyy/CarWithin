@@ -1,8 +1,8 @@
-name: Build CarWithin 1.0.8 (张雪 500RR/820RR/820R + 150AURA 闪退修复)
+name: Build CarWithin 1.0.9 (张雪 500RR/820RR/820R + 崩溃诊断)
 
-# 当前仓库源码已包含张雪 1.0.8 / 150AURA 补丁、连接保持和闪退修复。
+# 当前仓库源码已包含张雪 1.0.9 / 150AURA 补丁、连接保持和崩溃诊断。
 # 在 Actions 页手动 Run workflow。
-# 产物：CarWithin-1.0.8-zhangxue.ipa，下载后自行签名安装。
+# 产物：CarWithin-1.0.9-zhangxue.ipa，下载后自行签名安装。
 
 on:
   workflow_dispatch:
@@ -37,12 +37,12 @@ jobs:
             -derivedDataPath build/source
           mkdir -p Payload
           cp -R build/source/Build/Products/Release-iphoneos/TDSCarKit.app Payload/
-          zip -qr CarWithin-1.0.8-zhangxue.ipa Payload
-          ls -lh CarWithin-1.0.8-zhangxue.ipa
+          zip -qr CarWithin-1.0.9-zhangxue.ipa Payload
+          ls -lh CarWithin-1.0.9-zhangxue.ipa
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: CarWithin-1.0.8-zhangxue
-          path: CarWithin-1.0.8-zhangxue.ipa
+          name: CarWithin-1.0.9-zhangxue
+          path: CarWithin-1.0.9-zhangxue.ipa
           if-no-files-found: error

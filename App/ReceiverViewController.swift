@@ -2032,6 +2032,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             logView.text = lines.joined(separator: "\n")
             if !logView.text.isEmpty { logView.scrollRangeToVisible(NSRange(location: logView.text.utf16.count - 1, length: 1)) }
         }
+        DiagnosticLogStore.shared.append(message)
         NSLog("[CarWithin] %@", message)
     }
 }
@@ -3136,10 +3137,21 @@ extension ReceiverViewController {
     fileprivate func logPage() -> SettingsPageController {
         let controller = page(CWL("日志")) { [unowned self] in
             [
-                SettingsSection(footer: CWL("最近 200 条，不含 Wi-Fi 密码和 MFi 私钥。"), [.view(logView)]),
-                SettingsSection([.action(CWL("复制日志"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
-                    self.copyLog(); self.alert(CWL("已复制"), CWL("日志已复制到剪贴板。"))
-                }])
+                SettingsSection(footer: CWL("最近 200 条会同时保存到 App 诊断日志，闪退后仍可查看。"), [.view(logView)]),
+                SettingsSection([
+                    .action(CWL("复制日志"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
+                        self.copyLog(); self.alert(CWL("已复制"), CWL("当前日志已复制到剪贴板。"))
+                    },
+                    .page(CWL("崩溃定位"), icon: ("exclamationmark.triangle.fill", .systemRed)) { [unowned self] in
+                        self.crashReportPage()
+                    },
+                    .action(CWL("分享完整诊断日志"), icon: ("square.and.arrow.up", .systemBlue)) { [unowned self] in
+                        self.shareDiagnosticLogs()
+                    },
+                    .action(CWL("清除诊断日志"), icon: ("trash", .systemRed), destructive: true) { [unowned self] in
+                        self.confirmClearDiagnosticLogs()
+                    }
+                ])
             ]
         }
         logView.constraints.filter { $0.firstAttribute == .height }.forEach { $0.constant = 380 }
@@ -3148,6 +3160,61 @@ extension ReceiverViewController {
             if !self.logView.text.isEmpty { self.logView.scrollRangeToVisible(NSRange(location: self.logView.text.utf16.count - 1, length: 1)) }
         }
         return controller
+    }
+
+    private func crashReportPage() -> SettingsPageController {
+        let reportView = UITextView()
+        reportView.isEditable = false
+        reportView.isSelectable = true
+        reportView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        reportView.textColor = .label
+        reportView.backgroundColor = .secondarySystemGroupedBackground
+        reportView.layer.cornerRadius = 8
+        reportView.heightAnchor.constraint(equalToConstant: 260).isActive = true
+        return page(CWL("崩溃定位")) { [unowned self] in
+            reportView.text = DiagnosticLogStore.shared.latestCrashText()
+                ?? CWL("没有发现崩溃记录。\n\n如果 App 刚刚闪退，请重新打开后进入此页；上次会话日志会包含在完整诊断日志中。")
+            return [
+                SettingsSection(footer: CWL("崩溃报告包含信号、异常堆栈和退出前日志。分享前请检查 IP、Wi-Fi 名称等个人信息。"), [
+                    .view(reportView),
+                    .info(CWL("最近崩溃"), DiagnosticLogStore.shared.latestCrashSummary()),
+                    .action(CWL("复制崩溃报告"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
+                        self.copyCrashReport()
+                    },
+                    .action(CWL("分享完整诊断日志"), icon: ("square.and.arrow.up", .systemBlue)) { [unowned self] in
+                        self.shareDiagnosticLogs()
+                    },
+                    .action(CWL("清除诊断日志"), icon: ("trash", .systemRed), destructive: true) { [unowned self] in
+                        self.confirmClearDiagnosticLogs()
+                    }
+                ])
+            ]
+        }
+    }
+
+    private func copyCrashReport() {
+        let text = DiagnosticLogStore.shared.latestCrashText() ?? CWL("没有发现崩溃报告。")
+        UIPasteboard.general.string = text
+        alert(CWL("已复制"), CWL("崩溃报告已复制到剪贴板。"))
+    }
+
+    private func shareDiagnosticLogs() {
+        DiagnosticLogStore.shared.flush()
+        let url = DiagnosticLogStore.shared.exportableReportURL()
+        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        activity.popoverPresentationController?.sourceView = view
+        activity.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+        present(activity, animated: true)
+    }
+
+    private func confirmClearDiagnosticLogs() {
+        let sheet = UIAlertController(title: CWL("清除诊断日志"), message: CWL("将删除当前日志、上次会话日志和所有崩溃报告。"), preferredStyle: .alert)
+        sheet.addAction(UIAlertAction(title: CWL("取消"), style: .cancel))
+        sheet.addAction(UIAlertAction(title: CWL("清除"), style: .destructive) { [unowned self] _ in
+            DiagnosticLogStore.shared.clearLogs()
+            self.alert(CWL("已清除"), CWL("诊断日志已清除。"))
+        })
+        present(sheet, animated: true)
     }
 
     private func experimentSections() -> [SettingsSection] {
@@ -3174,6 +3241,7 @@ extension ReceiverViewController {
         }
         return SettingsSection(CWL("诊断信息"), [
             .page(CWL("日志"), icon: ("doc.text.fill", .systemGray)) { [unowned self] in self.logPage() },
+            .page(CWL("崩溃定位"), icon: ("exclamationmark.triangle.fill", .systemRed)) { [unowned self] in self.crashReportPage() },
             .info(CWL("浏览器页面"), BrowserReceiverPage.version),
             .info(CWL("设备"), "\(model) · iOS \(UIDevice.current.systemVersion)"),
             .info(CWL("MFi 身份"), identity != nil ? CWL("已载入") : CWL("未载入"))
