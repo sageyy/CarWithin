@@ -195,78 +195,47 @@ final class DiagnosticLogStore {
 
 enum CrashReporter {
     private static var installed = false
-    private static var crashPath: UnsafeMutablePointer<CChar>?
+    private static var crashURL: URL?
     private static var headerText = ""
-    private static var signalMessages: [Int32: [UInt8]] = [:]
-    private static var backtraceFrames = [UnsafeMutableRawPointer?](repeating: nil, count: 64)
 
     static func install() {
         guard !installed else { return }
         installed = true
-
-        let url = DiagnosticLogStore.shared.prepareCrashReportURL()
-        if let pathCString = (url.path as NSString).utf8String {
-            crashPath = strdup(pathCString)
-        }
+        crashURL = DiagnosticLogStore.shared.prepareCrashReportURL()
         headerText = DiagnosticLogStore.shared.crashHeader()
 
         let signals = [SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL]
-        for signalNumber in signals {
-            signalMessages[signalNumber] = Array("\(headerText)\n==== CarWithin signal \(signalNumber) ====\n".utf8)
-        }
 
         NSSetUncaughtExceptionHandler { exception in
             let reason = exception.reason ?? "unknown"
             let symbols = exception.callStackSymbols.joined(separator: "\n")
-            let text = """
+            writeReport("""
             \(headerText)
             ==== CarWithin NSException ====
             name=\(exception.name.rawValue)
             reason=\(reason)
             \(symbols)
-            """
-            writeString(text)
+            """)
             _exit(1)
         }
 
         for signalNumber in signals {
             signal(signalNumber) { received in
-                writeSignal(received)
+                let symbols = Thread.callStackSymbols.joined(separator: "\n")
+                writeReport("""
+                \(headerText)
+                ==== CarWithin signal \(received) ====
+                \(symbols)
+                """)
                 signal(received, SIG_DFL)
                 raise(received)
             }
         }
     }
 
-    private static func writeSignal(_ signalNumber: Int32) {
-        guard let path = crashPath else { return }
-        let descriptor = open(path, O_WRONLY | O_CREAT | O_APPEND, mode_t(S_IRUSR | S_IWUSR))
-        guard descriptor >= 0 else { return }
-        if let bytes = signalMessages[signalNumber] {
-            bytes.withUnsafeBytes { raw in
-                _ = write(descriptor, raw.baseAddress, raw.count)
-            }
-        }
-        let count = backtrace(&backtraceFrames, Int32(backtraceFrames.count))
-        if count > 0 {
-            backtrace_symbols_fd(&backtraceFrames, count, descriptor)
-        }
-        close(descriptor)
-    }
-
-    private static func writeString(_ text: String) {
-        guard let data = (text + "\n").data(using: .utf8) else { return }
-        var bytes = [UInt8](data)
-        writeBytes(&bytes)
-    }
-
-    private static func writeBytes(_ bytes: inout [UInt8]) {
-        guard let path = crashPath else { return }
-        let descriptor = open(path, O_WRONLY | O_CREAT | O_APPEND, mode_t(S_IRUSR | S_IWUSR))
-        guard descriptor >= 0 else { return }
-        bytes.withUnsafeMutableBytes { raw in
-            _ = write(descriptor, raw.baseAddress, raw.count)
-        }
-        close(descriptor)
+    private static func writeReport(_ text: String) {
+        guard let url = crashURL else { return }
+        let report = text + "\n"
+        try? report.write(to: url, atomically: true, encoding: .utf8)
     }
 }
