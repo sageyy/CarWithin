@@ -205,7 +205,9 @@ enum CrashReporter {
         installed = true
 
         let url = DiagnosticLogStore.shared.prepareCrashReportURL()
-        crashPath = strdup(url.path)
+        if let pathCString = (url.path as NSString).utf8String {
+            crashPath = strdup(pathCString)
+        }
         headerText = DiagnosticLogStore.shared.crashHeader()
 
         let signals = [SIGABRT, SIGSEGV, SIGBUS, SIGFPE, SIGILL]
