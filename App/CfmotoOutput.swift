@@ -15,6 +15,13 @@ struct CfmotoProfile: Equatable {
     static let fiveInch = CfmotoProfile(width: 800, height: 386, fps: 30, bitrate: 3_500_000, label: "春风 5 寸")
     static let sixInch = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "春风 6.2 寸")
 
+    /// 张雪（ZXMOTO）仪表与春风共用 PXC 协议。公开资料确认：500RR 为 5 寸 TFT，
+    /// 820RR / 820R 为 6.2 寸 TFT，均支持手机连接与导航投屏；这里保留实测像素
+    /// 500RR 800×386、820RR / 820R 1024×515，实际编码尺寸仍以仪表媒体协商上报为准。
+    static let zhangxue500RR = CfmotoProfile(width: 800, height: 386, fps: 30, bitrate: 3_500_000, label: "张雪 500RR")
+    static let zhangxue820RR = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "张雪 820RR")
+    static let zhangxue820R = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "张雪 820R")
+
     var encodeWidth: Int { width - width % 2 }
     var encodeHeight: Int { height % 2 == 0 ? height : height + 1 }
     var title: String { "\(width)×\(height)" }
@@ -120,7 +127,10 @@ final class CfmotoOutput {
                         if !ready { Thread.sleep(forTimeInterval: 0.05); continue }
                         let remaining = nextFrame - ProcessInfo.processInfo.systemUptime
                         if remaining > 0 { Thread.sleep(forTimeInterval: min(remaining, 0.04)); continue }
-                        try connection.waitForH264Request()
+                        guard connection.waitForH264Request() else {
+                            report("等待仪表拉帧 · 链路保持中")
+                            continue
+                        }
                         nextFrame = ProcessInfo.processInfo.systemUptime + 1.0 / Double(profile.fps)
                         guard active else { break }
                         let result = queue.sync { () -> H264EncodedFrame? in
@@ -138,12 +148,12 @@ final class CfmotoOutput {
                                 }
                             }
                             guard let recovered else { throw TailingError.timeout("等待 H.264 编码画面") }
-                            try connection.sendH264(recovered.data)
+                            guard connection.sendH264(recovered.data) else { continue }
                             first = false
                             report("正在投屏 · \(profile.title) · H.264")
                             continue
                         }
-                        try connection.sendH264(result.data)
+                        guard connection.sendH264(result.data) else { continue }
                         first = false
                         report("正在投屏 · \(profile.title) · H.264")
                     }

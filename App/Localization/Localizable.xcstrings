@@ -18060,6 +18060,54 @@
         }
       }
     },
+    "张雪 500RR": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZXMOTO 500RR"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "张雪 500RR"
+          }
+        }
+      }
+    },
+    "张雪 820RR": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZXMOTO 820RR"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "张雪 820RR"
+          }
+        }
+      }
+    },
+    "张雪 820R": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZXMOTO 820R"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "张雪 820R"
+          }
+        }
+      }
+    },
     "反馈与建议": {
       "localizations": {
         "en": {

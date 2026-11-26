@@ -56,6 +56,8 @@ final class PxcConnection: @unchecked Sendable {
     private var configured = false
     private var mediaStarted = false
     private var frameRequested = false
+    private var frameWaitLogged = false
+    private var consecutiveWriteTimeouts = 0
     private var negotiated = MediaSize(width: 800, height: 384, fps: 30)
     private var framesSent = 0
 
@@ -88,11 +90,12 @@ final class PxcConnection: @unchecked Sendable {
         guard body.count >= 12 else { throw TailingError.protocolFailure("春风媒体配置不完整") }
         let width = Int(body.uint16LE(0)), height = Int(body.uint16LE(2))
         let fps = Int(body.uint32LE(4)), codec = body.uint32LE(8)
-        guard (240...1920).contains(width), (240...1080).contains(height),
-              (1...60).contains(fps), codec == 0 || codec == 2 else {
-            throw TailingError.protocolFailure("春风媒体尺寸、帧率或编码格式无效")
+        guard (16...4096).contains(width), (16...2160).contains(height),
+              (0...240).contains(fps) else {
+            throw TailingError.protocolFailure("春风媒体参数 \(width)×\(height)@\(fps)fps codec=\(codec) 不受支持")
         }
-        return MediaSize(width: width & ~0xF, height: height & ~0xF, fps: fps)
+        return MediaSize(width: width & ~0xF, height: height & ~0xF,
+                         fps: (1...120).contains(fps) ? fps : 30)
     }
 
     func start() throws {
@@ -337,24 +340,39 @@ final class PxcConnection: @unchecked Sendable {
 
     // MARK: - 逐帧发送
 
-    func waitForH264Request() throws {
+    @discardableResult
+    func waitForH264Request() -> Bool {
         condition.lock()
         defer { condition.unlock() }
         let deadline = Date().addingTimeInterval(10)
         while !closed && failure == nil && !frameRequested {
-            if !condition.wait(until: deadline) { throw TailingError.timeout("等待仪表逐帧拉取画面") }
+            if !condition.wait(until: deadline) {
+                if frameRequested { break }
+                if !frameWaitLogged {
+                    log("\(dashboard) 仪表暂时没有发送 114 拉帧，保持链路等待")
+                    frameWaitLogged = true
+                }
+                return false
+            }
         }
-        try checkLocked()
-        frameRequested = false
+        guard !closed, failure == nil else { return false }
+        frameWaitLogged = false
+        return true
     }
 
-    func sendH264(_ accessUnit: Data) throws {
+    @discardableResult
+    func sendH264(_ accessUnit: Data) -> Bool {
         guard accessUnit.count > 4, accessUnit.count <= 8 * 1_024 * 1_024,
               accessUnit.prefix(4) == Data([0, 0, 0, 1]) else {
-            throw TailingError.protocolFailure("H.264 Annex B 帧无效或过长")
+            log("\(dashboard) H.264 Annex B 帧无效或过长，已丢弃")
+            return false
         }
         condition.lock()
-        guard let socket = video, !closed else { condition.unlock(); throw TailingError.closed }
+        guard let socket = video, !closed else {
+            condition.unlock()
+            fail(TailingError.channel("发送 H.264", TailingError.closed))
+            return false
+        }
         condition.unlock()
         var packet = Data()
         packet.appendLE(UInt32(accessUnit.count))
@@ -362,15 +380,32 @@ final class PxcConnection: @unchecked Sendable {
         do {
             try socket.write(packet)
         } catch {
-            throw terminalError(or: TailingError.channel("发送 H.264", error))
+            if let tailing = error as? TailingError, case .timeout(let text) = tailing {
+                condition.lock()
+                consecutiveWriteTimeouts += 1
+                let failedCount = framesSent + 1
+                let shouldFail = consecutiveWriteTimeouts >= 3
+                condition.unlock()
+                if shouldFail {
+                    fail(TailingError.channel("发送 H.264 连续超时", error))
+                } else {
+                    log("\(dashboard) 第 \(failedCount) 帧写入超时（\(text)），保留链路等待下一次拉帧")
+                }
+                return false
+            }
+            fail(terminalError(or: TailingError.channel("发送 H.264", error)))
+            return false
         }
         condition.lock()
         let count = framesSent + 1
         framesSent = count
+        consecutiveWriteTimeouts = 0
+        frameRequested = false
         condition.unlock()
         if count <= 5 || count % 60 == 0 {
             log("\(dashboard) 第 \(count) 帧 \(accessUnit.count) 字节 已送")
         }
+        return true
     }
 
     private var isClosed: Bool { condition.lock(); defer { condition.unlock() }; return closed }

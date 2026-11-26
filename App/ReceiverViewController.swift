@@ -173,11 +173,14 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let cfmotoCardStatus = UILabel()
     private let cfmotoStatus = StatusLabel()
     private let cfmotoAddressField = UITextField()
-    /// 春风 5 寸 / 6.2 寸共用地址与端口，只有画面规格不同。
+    /// 春风与张雪仪表共用地址与端口，只有画面规格不同。
     private var cfmotoProfile: CfmotoProfile? {
         switch outputMode {
         case .cfmoto5: return .fiveInch
         case .cfmoto62: return .sixInch
+        case .zhangxue500RR: return .zhangxue500RR
+        case .zhangxue820RR: return .zhangxue820RR
+        case .zhangxue820R: return .zhangxue820R
         default: return nil
         }
     }
@@ -237,9 +240,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let headUnitOutput = ChoiceMenu(items: HeadUnitOutput.menuOrder.map(\.title))
     private enum HeadUnitOutput: Int {
         // Persisted in headUnitOutputV2. Append new modes after existing values.
-        case browser, carLife, airPlay, tailing, ninebot, zeeho, ninebotSeven, ninebot43, zeehoSEPlus, zeehoAE2, cfmoto5, cfmoto62
+        case browser, carLife, airPlay, tailing, ninebot, zeeho, ninebotSeven, ninebot43, zeehoSEPlus, zeehoAE2, cfmoto5, cfmoto62, zhangxue500RR, zhangxue820RR, zhangxue820R
         // Display order is independent of the persisted raw values above.
-        static let menuOrder: [Self] = [.browser, .carLife, .airPlay, .ninebot43, .ninebot, .ninebotSeven, .tailing, .zeeho, .zeehoSEPlus, .zeehoAE2, .cfmoto5, .cfmoto62]
+        static let menuOrder: [Self] = [.browser, .carLife, .airPlay, .ninebot43, .ninebot, .ninebotSeven, .tailing, .zeeho, .zeehoSEPlus, .zeehoAE2, .cfmoto5, .cfmoto62, .zhangxue500RR, .zhangxue820RR, .zhangxue820R]
         var menuIndex: Int { Self.menuOrder.firstIndex(of: self)! }
         var title: String {
             switch self {
@@ -255,6 +258,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             case .zeehoAE2: return CWL("极核 AE2 Pro 5 寸")
             case .cfmoto5: return CWL("春风 5 寸")
             case .cfmoto62: return CWL("春风 6.2 寸")
+            case .zhangxue500RR: return CWL("张雪 500RR")
+            case .zhangxue820RR: return CWL("张雪 820RR")
+            case .zhangxue820R: return CWL("张雪 820R")
             }
         }
         var ninebotMode: NinebotOutput.Mode? {
@@ -273,7 +279,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             default: return nil
             }
         }
-        var cfmoto: Bool { self == .cfmoto5 || self == .cfmoto62 }
+        /// 春风与张雪共用同一套 PXC 会话（10920/10921/10922 + 10930），只是 profile 不同。
+        var cfmoto: Bool { self == .cfmoto5 || self == .cfmoto62 || self == .zhangxue500RR || self == .zhangxue820RR || self == .zhangxue820R }
         var usesInstrumentWiFi: Bool { cfmoto || self == .tailing || zeehoProfile != nil || ninebotMode != nil }
     }
     private var airPlayStreamID: UUID?
@@ -541,8 +548,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         zeehoCard.addArrangedSubview(zeehoSettings)
         stack.addArrangedSubview(zeehoCard)
 
-        configureConnectionCard(cfmotoCard, title: "春风仪表连接", symbol: "scooter", color: .systemBlue,
-            instructions: "让 iPhone 加入春风仪表 Wi-Fi，打开仪表投屏后启动 CarPlay。春风和极核同一套 PXC 协议（TCP 10920/10921/10922 + 10930 通知），由仪表回连后再逐帧拉画面。", status: cfmotoCardStatus)
+        configureConnectionCard(cfmotoCard, title: "PXC 仪表连接", symbol: "scooter", color: .systemBlue,
+            instructions: "让 iPhone 加入仪表 Wi-Fi，打开仪表投屏后启动 CarPlay。春风、张雪和极核使用同一套 PXC 协议（TCP 10920/10921/10922 + 10930 通知），由仪表回连后再逐帧拉画面。", status: cfmotoCardStatus)
         let cfmotoSettings = UIButton(type: .system)
         cfmotoSettings.configuration = .tinted()
         cfmotoSettings.configuration?.title = CWL("连接设置")
@@ -2445,7 +2452,7 @@ extension ReceiverViewController {
     fileprivate func displayPage() -> SettingsPageController {
         page(CWL("画面")) { [unowned self] in
             if let cfmoto = cfmotoProfile {
-                let name = outputMode == .cfmoto5 ? "春风 5 寸" : "春风 6.2 寸"
+                let name = cfmoto.label
                 return [
                     SettingsSection(name, [.info(CWL("仪表画面"), "\(cfmoto.width)×\(cfmoto.height) · H.264 · PXC(TCP) · \(cfmoto.fps) FPS")]),
                     SettingsSection(CWL("图标"), [.control(CWL("CarPlay 图标大小"), icon: ("square.grid.2x2.fill", .systemPurple), iconSizeControl)])
@@ -2809,8 +2816,8 @@ extension ReceiverViewController {
                 }
                 rows.append(.note(zeehoStatus))
                 return [SettingsSection(name, footer: CWL("让 iPhone 加入仪表 Wi-Fi，选择同名预设。结束其他投屏，打开仪表投屏后启动 CarPlay。声音由 iPhone 或蓝牙输出。"), rows)]
-            case .cfmoto5, .cfmoto62:
-                return [SettingsSection(headUnitOutput.selectedTitle, footer: "iPhone 加入春风仪表 Wi-Fi 并开启仪表投屏，TCP 10920/10921/10922，探测 10930。留空 IP 时尝试同网段 .1，失败请填写实际仪表 IP。", [
+            case .cfmoto5, .cfmoto62, .zhangxue500RR, .zhangxue820RR, .zhangxue820R:
+                return [SettingsSection(headUnitOutput.selectedTitle, footer: "iPhone 加入仪表 Wi-Fi 并开启仪表投屏，TCP 10920/10921/10922，探测 10930。留空 IP 时尝试同网段 .1，失败请填写实际仪表 IP。", [
                     .field(CWL("仪表 IP 地址"), cfmotoAddressField, placeholder: "留空尝试 .1"),
                     .note(cfmotoStatus)
                 ])]
@@ -2853,7 +2860,7 @@ extension ReceiverViewController {
 
     private func prepareExternalOutput(configuration: ReceiverConfiguration) {
         if configuration.zeehoAddress != nil { updateZeehoStatus(CWL("正在连接极核仪表…")) }
-        if configuration.cfmotoProfile != nil { updateCfmotoStatus("正在推流到春风仪表…") }
+        if let cfmoto = configuration.cfmotoProfile { updateCfmotoStatus("正在推流到\(cfmoto.label)仪表…") }
         if configuration.ninebotAddress != nil { updateNinebotStatus(CWL("正在连接九号仪表…")) }
         if configuration.tailingAddress != nil { updateTailingStatus(CWL("正在连接台铃仪表…")) }
         if configuration.carLifeEnabled {

@@ -166,7 +166,7 @@ struct ReceiverConfiguration {
                   !cfmotoAddress.hasPrefix("127."), !cfmotoAddress.hasPrefix("0."),
                   !cfmotoAddress.hasPrefix("169.254."), UInt32(bigEndian: target.s_addr) < 0xe0000000,
                   !cfmotoAddress.hasSuffix(".0"), !cfmotoAddress.hasSuffix(".255") else {
-                throw ConfigurationError("请输入春风仪表真实的 IPv4 地址（不能用网段地址 .0 或广播地址 .255），留空则自动取网关 .1。")
+                throw ConfigurationError("请输入仪表真实的 IPv4 地址（不能用网段地址 .0 或广播地址 .255），留空则自动取网关 .1。")
             }
         }
         if let ninebotAddress {

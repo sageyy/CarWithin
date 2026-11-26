@@ -59,7 +59,8 @@ assert 'self.zeeho62.start(' in native and 'self.zeeho62.append(' in native and 
 settings = (root / 'App/ReceiverViewController.swift').read_text(encoding='utf-8')
 cases = re.search(r'private enum HeadUnitOutput: Int \{.*?\bcase ([^\n]+)', settings, re.S).group(1)
 assert [name.strip() for name in cases.split(',')] == [
-    'browser', 'carLife', 'airPlay', 'tailing', 'ninebot', 'zeeho', 'ninebotSeven', 'ninebot43', 'zeehoSEPlus', 'zeehoAE2', 'cfmoto5', 'cfmoto62'
+    'browser', 'carLife', 'airPlay', 'tailing', 'ninebot', 'zeeho', 'ninebotSeven', 'ninebot43', 'zeehoSEPlus', 'zeehoAE2', 'cfmoto5', 'cfmoto62',
+    'zhangxue500RR', 'zhangxue820RR', 'zhangxue820R'
 ], 'persisted output IDs changed'
 print('PASS: original 6.2 output and wire codec unchanged; original negotiation restored with IP-discovery-only changes; raw snapshots and shared socket/identity verified (allowing presentation localization)')
 print('PASS: upstream output IDs 0–7 preserved; SE+ appended as ID 8')

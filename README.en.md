@@ -10,9 +10,22 @@ CarWithin runs CarPlay on the same iPhone that generates its interface. Use CarP
 
 ## Download and install
 
-- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.5 (build 17)**.
-- Download `CarWithin-1.0.5-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
+- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.7 (build 19)**.
+- Download `CarWithin-1.0.7-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
 - The minimum installation target is iOS/iPadOS 16.0 on arm64; iOS 15 is not supported. Same-device CarPlay, audio, and background behavior still need testing on iOS 16.x hardware. CarWithin uses private iOS interfaces. Compatibility depends on the device, OS version, and signing setup, and OS updates can affect it.
+
+## What is new in 1.0.7
+
+- Landed the ZXMOTO (Zhangxue) 500RR / 820RR / 820R profiles in local source. Public specs confirm a 5-inch TFT for 500RR and 6.2-inch TFT for 820RR / 820R with phone connection and navigation projection; local profiles remain aligned with PXC media negotiation.
+- Fixed the 150AURA session dropping after a few minutes when the dashboard paused 114 frame requests or hit transient write timeouts. The link now waits for recovery and closes only after three consecutive write timeouts.
+- GitHub Actions no longer reapplies source patches and builds directly from the patched source.
+- Real-dashboard video and background behavior still need hardware testing; a successful build does not establish compatibility.
+
+## What is new in 1.0.6
+
+- Added output profiles for ZXMOTO (Zhangxue) 500RR, 820RR and 820R. They share the CFMOTO PXC protocol: 500RR is 5-inch 800x386, 820RR / 820R are 6.2-inch 1024x515; the actual video size follows the dashboard's media negotiation.
+- Kept the relaxed 150AURA media-parameter validation for newer dashboards' fps and codec values.
+- Connection, video and background behavior of the new models still need hardware testing; a successful build does not establish compatibility.
 
 ## What is new in 1.0.5
 
@@ -129,6 +142,10 @@ Video and recovery after locking the iPhone have been confirmed on one instrumen
 ### CFMOTO 5-inch and 6.2-inch dashboards
 
 Join the dashboard Wi-Fi on the iPhone, select the corresponding CFMOTO output, enable dashboard projection and start CarPlay. Set the dashboard address in Output settings. Leaving it blank tries `.1` on the local subnet; this is a guess, not a discovered DHCP gateway. Enter the real address if it fails. A separate PXC session uses TCP 10920/10921/10922 and probe port 10930, with negotiated, aligned video dimensions. Audio and controls remain on the iPhone or its Bluetooth device. The maintainer has no CFMOTO dashboard, so connection, video and background behavior need hardware testing.
+
+### ZXMOTO 500RR / 820RR / 820R dashboards
+
+Join the dashboard Wi-Fi, select "ZXMOTO 500RR", "ZXMOTO 820RR" or "ZXMOTO 820R" under Current output, enable dashboard projection, then start CarPlay. All three share the CFMOTO PXC session (TCP 10920/10921/10922, probe 10930): 500RR is 5-inch 800x386, 820RR / 820R are 6.2-inch 1024x515; the actual encode size follows the dashboard's reported media parameters, aligned to 16 px. Set the dashboard IP in Output settings; leaving it blank tries `.1` on the local subnet. Audio and controls stay on the iPhone or its Bluetooth device. Connection, video and background behavior still need hardware testing.
 
 ### ANT BMS battery cards
 
