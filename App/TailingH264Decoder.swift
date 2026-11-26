@@ -4,19 +4,74 @@ import Foundation
 import VideoToolbox
 
 private final class TailingH264DecoderCallbackBox {
-    var output: ((CVPixelBuffer) -> Void)?
-    var failure: ((Error) -> Void)?
+    private let condition = NSCondition()
+    private var output: ((CVPixelBuffer) -> Void)?
+    private var failure: ((Error) -> Void)?
+    private var inFlight = 0
+    private var closed = false
+
+    func setHandlers(output: @escaping (CVPixelBuffer) -> Void, failure: @escaping (Error) -> Void) {
+        condition.lock()
+        self.output = output
+        self.failure = failure
+        closed = false
+        condition.unlock()
+    }
+
+    func deliverOutput(_ image: CVPixelBuffer) {
+        condition.lock()
+        guard !closed else { condition.unlock(); return }
+        inFlight += 1
+        let handler = output
+        condition.unlock()
+        defer {
+            condition.lock()
+            inFlight -= 1
+            if inFlight == 0 { condition.broadcast() }
+            condition.unlock()
+        }
+        handler?(image)
+    }
+
+    func deliverFailure(_ error: Error) {
+        condition.lock()
+        guard !closed else { condition.unlock(); return }
+        inFlight += 1
+        let handler = failure
+        condition.unlock()
+        defer {
+            condition.lock()
+            inFlight -= 1
+            if inFlight == 0 { condition.broadcast() }
+            condition.unlock()
+        }
+        handler?(error)
+    }
+
+    func close() {
+        condition.lock()
+        closed = true
+        output = nil
+        failure = nil
+        condition.unlock()
+    }
+
+    func waitForCallbacks() {
+        condition.lock()
+        while inFlight > 0 { condition.wait() }
+        condition.unlock()
+    }
 }
 
 private let tailingDecompressionCallback: VTDecompressionOutputCallback = { reference, _, status, _, imageBuffer, _, _ in
     guard let reference else { return }
     let box = Unmanaged<TailingH264DecoderCallbackBox>.fromOpaque(reference).takeUnretainedValue()
     guard status == noErr else {
-        box.failure?(TailingH264DecoderError.decode(status))
+        box.deliverFailure(TailingH264DecoderError.decode(status))
         return
     }
     guard let imageBuffer else { return }
-    box.output?(imageBuffer)
+    box.deliverOutput(imageBuffer)
 }
 
 final class TailingH264Decoder {
@@ -31,8 +86,7 @@ final class TailingH264Decoder {
         output: @escaping (CVPixelBuffer) -> Void,
         failure: @escaping (Error) -> Void
     ) throws {
-        callbackBox.output = output
-        callbackBox.failure = failure
+        callbackBox.setHandlers(output: output, failure: failure)
         try configure(configuration: configuration)
     }
 
@@ -113,12 +167,12 @@ final class TailingH264Decoder {
 
     func invalidate() {
         guard let session else { return }
+        callbackBox.close()
         VTDecompressionSessionWaitForAsynchronousFrames(session)
         VTDecompressionSessionInvalidate(session)
         self.session = nil
         formatDescription = nil
-        callbackBox.output = nil
-        callbackBox.failure = nil
+        callbackBox.waitForCallbacks()
     }
 
     private func configure(configuration: Data) throws {

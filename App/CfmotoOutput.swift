@@ -36,6 +36,7 @@ struct CfmotoProfile: Equatable {
 /// 握手、身份、SN 校验、媒体配置全部由 PxcConnection 负责。
 final class CfmotoOutput {
     private let queue: DispatchQueue
+    private let sessionLock = NSLock()
     private var session: Session?
 
     init(name: String = "cfmoto") {
@@ -51,18 +52,25 @@ final class CfmotoOutput {
         let next = Session(queue: queue, localAddress: localAddress, targetAddress: targetAddress,
                            phone: phone, profile: profile,
                            onState: onState, onLog: onLog, requestKeyframe: requestKeyframe)
+        sessionLock.lock()
         session = next
+        sessionLock.unlock()
         next.start()
     }
 
     func append(_ data: Data, codec: VideoCodec, keyframe: Bool) {
         guard codec == .h264 else { return }
-        session?.append(data, keyframe: keyframe)
+        sessionLock.lock()
+        let current = session
+        sessionLock.unlock()
+        current?.append(data, keyframe: keyframe)
     }
 
     func stop() {
-        guard let previous = session else { return }
+        sessionLock.lock()
+        guard let previous = session else { sessionLock.unlock(); return }
         session = nil
+        sessionLock.unlock()
         previous.cancel()
         queue.async { previous.close() }
     }
@@ -116,8 +124,10 @@ final class CfmotoOutput {
                     try connection.start()
                     guard active else { return }
                     let size = connection.mediaSize
-                    encodeWidth = size.width
-                    encodeHeight = size.height
+                    queue.sync {
+                        self.encodeWidth = size.width
+                        self.encodeHeight = size.height
+                    }
                     report("仪表已连接，等待 CarPlay 画面…")
                     var first = true
                     var nextFrame = ProcessInfo.processInfo.systemUptime

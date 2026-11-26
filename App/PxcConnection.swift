@@ -357,6 +357,7 @@ final class PxcConnection: @unchecked Sendable {
         }
         guard !closed, failure == nil else { return false }
         frameWaitLogged = false
+        frameRequested = false
         return true
     }
 
@@ -400,7 +401,6 @@ final class PxcConnection: @unchecked Sendable {
         let count = framesSent + 1
         framesSent = count
         consecutiveWriteTimeouts = 0
-        frameRequested = false
         condition.unlock()
         if count <= 5 || count % 60 == 0 {
             log("\(dashboard) 第 \(count) 帧 \(accessUnit.count) 字节 已送")

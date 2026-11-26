@@ -10,23 +10,61 @@ struct H264EncodedFrame {
 }
 
 private final class H264CallbackBox {
-    var handler: ((Result<H264EncodedFrame, Error>) -> Void)?
+    private let condition = NSCondition()
+    private var handler: ((Result<H264EncodedFrame, Error>) -> Void)?
+    private var inFlight = 0
+    private var closed = false
+
+    func setHandler(_ handler: @escaping (Result<H264EncodedFrame, Error>) -> Void) {
+        condition.lock()
+        self.handler = handler
+        closed = false
+        condition.unlock()
+    }
+
+    func deliver(_ result: Result<H264EncodedFrame, Error>) {
+        condition.lock()
+        guard !closed else { condition.unlock(); return }
+        inFlight += 1
+        let handler = self.handler
+        condition.unlock()
+        defer {
+            condition.lock()
+            inFlight -= 1
+            if inFlight == 0 { condition.broadcast() }
+            condition.unlock()
+        }
+        handler?(result)
+    }
+
+    func close() {
+        condition.lock()
+        closed = true
+        handler = nil
+        condition.unlock()
+    }
+
+    func waitForCallbacks() {
+        condition.lock()
+        while inFlight > 0 { condition.wait() }
+        condition.unlock()
+    }
 }
 
 private let h264CompressionCallback: VTCompressionOutputCallback = { reference, _, status, infoFlags, sampleBuffer in
     guard let reference else { return }
     let box = Unmanaged<H264CallbackBox>.fromOpaque(reference).takeUnretainedValue()
     guard status == noErr else {
-        box.handler?(.failure(H264EncoderError.compression(status)))
+        box.deliver(.failure(H264EncoderError.compression(status)))
         return
     }
     // RealTime + 码率上限下，VideoToolbox 会主动丢帧并回调空 sampleBuffer，这是正常行为
     if infoFlags.contains(.frameDropped) || sampleBuffer == nil {
-        box.handler?(.failure(H264EncoderError.frameDropped))
+        box.deliver(.failure(H264EncoderError.frameDropped))
         return
     }
     guard let sampleBuffer, CMSampleBufferDataIsReady(sampleBuffer) else {
-        box.handler?(.failure(H264EncoderError.missingSampleBuffer))
+        box.deliver(.failure(H264EncoderError.missingSampleBuffer))
         return
     }
 
@@ -89,13 +127,13 @@ private let h264CompressionCallback: VTCompressionOutputCallback = { reference, 
         ) else {
             throw H264EncoderError.missingParameterSets
         }
-        box.handler?(.success(H264EncodedFrame(
+        box.deliver(.success(H264EncodedFrame(
             data: annexB,
             isKeyframe: isKeyframe,
             presentationTime: CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         )))
     } catch {
-        box.handler?(.failure(error))
+        box.deliver(.failure(error))
     }
 }
 
@@ -107,7 +145,7 @@ final class H264Encoder {
     init(width: Int, height: Int, fps: Int, bitrate: Int, profileLevel: CFString = kVTProfileLevel_H264_Baseline_AutoLevel,
          output: @escaping (Result<H264EncodedFrame, Error>) -> Void) throws {
         self.fps = fps
-        callbackBox.handler = output
+        callbackBox.setHandler(output)
 
         let attributes: [CFString: Any] = [
             kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
@@ -140,8 +178,7 @@ final class H264Encoder {
         do {
             try configure(created, bitrate: bitrate, profileLevel: profileLevel)
         } catch {
-            VTCompressionSessionInvalidate(created)
-            session = nil
+            invalidate()
             throw error
         }
     }
@@ -196,9 +233,11 @@ final class H264Encoder {
 
     func invalidate() {
         guard let session else { return }
+        callbackBox.close()
+        VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: .invalid)
         VTCompressionSessionInvalidate(session)
         self.session = nil
-        callbackBox.handler = nil
+        callbackBox.waitForCallbacks()
     }
 
     private func set(_ key: CFString, value: CFTypeRef) throws {
