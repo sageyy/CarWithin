@@ -3148,6 +3148,9 @@ extension ReceiverViewController {
                     .action(CWL("分享完整诊断日志"), icon: ("square.and.arrow.up", .systemBlue)) { [unowned self] in
                         self.shareDiagnosticLogs()
                     },
+                    .action(CWL("复制完整诊断日志"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
+                        self.copyFullDiagnosticLogs()
+                    },
                     .action(CWL("清除诊断日志"), icon: ("trash", .systemRed), destructive: true) { [unowned self] in
                         self.confirmClearDiagnosticLogs()
                     }
@@ -3156,7 +3159,9 @@ extension ReceiverViewController {
         }
         logView.constraints.filter { $0.firstAttribute == .height }.forEach { $0.constant = 380 }
         controller.onAppear = { [unowned self] in
-            self.logView.text = self.lines.joined(separator: "\n")
+            let persisted = DiagnosticLogStore.shared.currentLogText()
+            let memory = self.lines.joined(separator: "\n")
+            self.logView.text = persisted.isEmpty ? memory : persisted
             if !self.logView.text.isEmpty { self.logView.scrollRangeToVisible(NSRange(location: self.logView.text.utf16.count - 1, length: 1)) }
         }
         return controller
@@ -3171,7 +3176,7 @@ extension ReceiverViewController {
         reportView.backgroundColor = .secondarySystemGroupedBackground
         reportView.layer.cornerRadius = 8
         reportView.heightAnchor.constraint(equalToConstant: 260).isActive = true
-        return page(CWL("崩溃定位")) { [unowned self] in
+        let controller = page(CWL("崩溃定位")) { [unowned self] in
             reportView.text = DiagnosticLogStore.shared.latestCrashText()
                 ?? CWL("没有发现崩溃记录。\n\n如果 App 刚刚闪退，请重新打开后进入此页；上次会话日志会包含在完整诊断日志中。")
             return [
@@ -3190,6 +3195,11 @@ extension ReceiverViewController {
                 ])
             ]
         }
+        controller.onAppear = { [unowned self] in
+            reportView.text = DiagnosticLogStore.shared.latestCrashText()
+                ?? CWL("没有发现崩溃记录。\n\n如果 App 刚刚闪退，请重新打开后进入此页；上次会话日志会包含在完整诊断日志中。")
+        }
+        return controller
     }
 
     private func copyCrashReport() {
@@ -3201,10 +3211,34 @@ extension ReceiverViewController {
     private func shareDiagnosticLogs() {
         DiagnosticLogStore.shared.flush()
         let url = DiagnosticLogStore.shared.exportableReportURL()
-        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        activity.popoverPresentationController?.sourceView = view
-        activity.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
-        present(activity, animated: true)
+        let text = DiagnosticLogStore.shared.exportableText()
+        UIPasteboard.general.string = text
+        let presenter = settingsNavigation ?? self
+        guard presenter.presentedViewController == nil else {
+            alert(CWL("无法分享"), CWL("请先关闭当前弹窗后重试。"))
+            return
+        }
+        let activity = UIActivityViewController(activityItems: [url, text], applicationActivities: nil)
+        activity.completionWithItemsHandler = { [weak self] _, completed, _, error in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if let error = error {
+                    self.alert(CWL("分享失败"), error.localizedDescription)
+                } else if completed {
+                    self.alert(CWL("已导出"), CWL("诊断日志已分享，同时已复制到剪贴板。"))
+                }
+            }
+        }
+        activity.popoverPresentationController?.sourceView = presenter.view
+        activity.popoverPresentationController?.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 1, height: 1)
+        presenter.present(activity, animated: true)
+    }
+
+    private func copyFullDiagnosticLogs() {
+        DiagnosticLogStore.shared.flush()
+        let text = DiagnosticLogStore.shared.exportableText()
+        UIPasteboard.general.string = text
+        alert(CWL("已复制"), CWL("完整诊断日志已复制到剪贴板。"))
     }
 
     private func confirmClearDiagnosticLogs() {

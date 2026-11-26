@@ -10,9 +10,16 @@ CarWithin runs CarPlay on the same iPhone that generates its interface. Use CarP
 
 ## Download and install
 
-- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.9 (build 21)**.
-- Download `CarWithin-1.0.9-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
+- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.10 (build 22)**.
+- Download `CarWithin-1.0.10-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
 - The minimum installation target is iOS/iPadOS 16.0 on arm64; iOS 15 is not supported. Same-device CarPlay, audio, and background behavior still need testing on iOS 16.x hardware. CarWithin uses private iOS interfaces. Compatibility depends on the device, OS version, and signing setup, and OS updates can affect it.
+
+## What is new in 1.0.10
+
+- The Log page now loads persisted logs immediately, so it is no longer empty after a restart.
+- Added launch-time abnormal exit detection. If the previous session did not end cleanly, the app creates a report containing the pre-crash log tail.
+- Fixed “Share Full Diagnostic Log” by presenting from the active settings sheet and adding a “Copy Full Diagnostic Log” fallback.
+- The Crash Report page refreshes the latest report every time it opens.
 
 ## What is new in 1.0.9
 

@@ -63,6 +63,10 @@ final class DiagnosticLogStore {
     func startSession() {
         lock.lock()
         closeHandleLocked()
+        let lastSessionText = readTextLocked(currentURL)
+        if !lastSessionText.isEmpty && !lastSessionText.contains("[session] 正常退出") {
+            writeAbnormalExitReportLocked(lastSessionText)
+        }
         if fileManager.fileExists(atPath: currentURL.path) {
             try? fileManager.removeItem(at: previousURL)
             try? fileManager.moveItem(at: currentURL, to: previousURL)
@@ -218,6 +222,21 @@ final class DiagnosticLogStore {
         for url in urls.dropFirst(20) {
             try? fileManager.removeItem(at: url)
         }
+    }
+
+    private func writeAbnormalExitReportLocked(_ lastSessionText: String) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmssSSS"
+        let name = "crash-detected-\(formatter.string(from: Date())).log"
+        let url = crashesURL.appendingPathComponent(name)
+        let text = """
+        \(crashHeader())
+        ==== CarWithin abnormal exit detected ====
+        reason=上次会话没有写入“正常退出”标记，可能发生了闪退或被系统强杀。
+        ==== Last session log tail ====
+        \(tail(lastSessionText, limit: 20_000))
+        """
+        try? (text + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func tail(_ text: String, limit: Int = 20_000) -> String {
