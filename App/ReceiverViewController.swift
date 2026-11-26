@@ -3205,6 +3205,9 @@ extension ReceiverViewController {
                     .action(CWL("分享完整诊断日志"), icon: ("square.and.arrow.up", .systemBlue)) { [unowned self] in
                         self.shareDiagnosticLogs()
                     },
+                    .action(CWL("清除崩溃记录"), icon: ("trash.circle", .systemOrange), destructive: true) { [unowned self] in
+                        self.confirmClearCrashReports()
+                    },
                     .action(CWL("清除诊断日志"), icon: ("trash", .systemRed), destructive: true) { [unowned self] in
                         self.confirmClearDiagnosticLogs()
                     }
@@ -3257,6 +3260,17 @@ extension ReceiverViewController {
         alert(CWL("已复制"), CWL("完整诊断日志已复制到剪贴板。"))
     }
 
+    private func confirmClearCrashReports() {
+        let sheet = UIAlertController(title: CWL("清除崩溃记录"), message: CWL("将删除所有崩溃报告和导出的诊断文件，不删除普通运行日志。"), preferredStyle: .alert)
+        sheet.addAction(UIAlertAction(title: CWL("取消"), style: .cancel))
+        sheet.addAction(UIAlertAction(title: CWL("清除"), style: .destructive) { [unowned self] _ in
+            DiagnosticLogStore.shared.clearCrashReports()
+            (self.settingsNavigation?.topViewController as? SettingsPageController)?.reload()
+            self.alert(CWL("已清除"), CWL("崩溃记录已清除。"))
+        })
+        (settingsNavigation ?? self).present(sheet, animated: true)
+    }
+
     private func confirmClearDiagnosticLogs() {
         let sheet = UIAlertController(title: CWL("清除诊断日志"), message: CWL("将删除当前日志、上次会话日志和所有崩溃报告。"), preferredStyle: .alert)
         sheet.addAction(UIAlertAction(title: CWL("取消"), style: .cancel))
@@ -3264,7 +3278,7 @@ extension ReceiverViewController {
             DiagnosticLogStore.shared.clearLogs()
             self.alert(CWL("已清除"), CWL("诊断日志已清除。"))
         })
-        present(sheet, animated: true)
+        (settingsNavigation ?? self).present(sheet, animated: true)
     }
 
     private func experimentSections() -> [SettingsSection] {

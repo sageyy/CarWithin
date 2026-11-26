@@ -10,9 +10,20 @@ CarWithin runs CarPlay on the same iPhone that generates its interface. Use CarP
 
 ## Download and install
 
-- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.11 (build 23)**.
-- Download `CarWithin-1.0.11-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
+- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.13 (build 25)**.
+- Download `CarWithin-1.0.13-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
 - The minimum installation target is iOS/iPadOS 16.0 on arm64; iOS 15 is not supported. Same-device CarPlay, audio, and background behavior still need testing on iOS 16.x hardware. CarWithin uses private iOS interfaces. Compatibility depends on the device, OS version, and signing setup, and OS updates can affect it.
+
+## What is new in 1.0.13
+
+- Diagnostics > Crash Report now has “Clear Crash Reports”, which removes crash reports and exported diagnostic files while keeping ordinary logs.
+- The existing “Clear Diagnostic Logs” action still clears current logs, previous session logs, and all crash reports.
+
+## What is new in 1.0.12
+
+- Fixed the memory spike in the CFMOTO/ZXMOTO dashboard output path: per-frame scaling and encoding are now wrapped in `autoreleasepool`, releasing roughly 2MB of temporary `CVPixelBuffer`/IOSurface memory per frame.
+- Added byte-based backpressure to dashboard output, browser input, and local display queues so large frames cannot pile up in GCD queues.
+- Diagnostic logs keep recording `phys_footprint` for memory validation.
 
 ## What is new in 1.0.11
 

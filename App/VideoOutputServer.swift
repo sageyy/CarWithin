@@ -74,6 +74,9 @@ final class VideoOutputServer {
     private var primaryBrowser: UUID?
     private var returningViewer: UUID?
     private var generation = UUID()
+    private let inputLock = NSLock()
+    private var queuedInputBytes = 0
+    private let maximumQueuedInputBytes = 8 * 1024 * 1024
     private var parameters = VideoParameterSets(codec: .h264)
     private var format: FragmentedMP4.Format?
     /// avcC/hvcC for WebCodecs `description`.
@@ -130,7 +133,21 @@ final class VideoOutputServer {
 
     func append(_ accessUnit: Data, codec: VideoCodec) {
         guard !accessUnit.isEmpty else { return }
-        queue.async { [weak self] in self?.appendOnQueue(accessUnit, codec: codec) }
+        inputLock.lock()
+        guard queuedInputBytes + accessUnit.count <= maximumQueuedInputBytes else {
+            inputLock.unlock()
+            return
+        }
+        queuedInputBytes += accessUnit.count
+        inputLock.unlock()
+        queue.async { [self] in
+            defer {
+                inputLock.lock()
+                queuedInputBytes = max(0, queuedInputBytes - accessUnit.count)
+                inputLock.unlock()
+            }
+            appendOnQueue(accessUnit, codec: codec)
+        }
     }
 
     func appendAudio(_ buffer: AVAudioPCMBuffer, stream: Int, stamp: UInt64) {

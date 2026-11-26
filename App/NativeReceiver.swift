@@ -11,8 +11,10 @@ final class NativeReceiver {
     /// Access units handed to the main thread but not yet consumed. Over the limit, the local
     /// display skips to the next keyframe instead of dropping arbitrary (dependent) P-frames.
     private var localInFlight = 0
+    private var localInFlightBytes = 0
     private var localSkipping = false
     private let maximumLocalInFlight = 12
+    private let maximumLocalInFlightBytes = 16 * 1024 * 1024
     private var localVideoEnabled = true
 
     func setLocalVideoEnabled(_ enabled: Bool) {
@@ -487,14 +489,17 @@ final class NativeReceiver {
                     if configuration.carLinkRelayAddress != nil { self.carLink.append(data, codec: codec) }
                     guard self.localVideoEnabled else { return }
                     if self.localSkipping {
-                        guard keyframe, self.localInFlight < self.maximumLocalInFlight / 2 else { return }
+                        guard keyframe, self.localInFlight < self.maximumLocalInFlight / 2,
+                              self.localInFlightBytes + data.count <= self.maximumLocalInFlightBytes / 2 else { return }
                         self.localSkipping = false
-                    } else if self.localInFlight >= self.maximumLocalInFlight, !keyframe {
+                    } else if (self.localInFlight >= self.maximumLocalInFlight
+                                || self.localInFlightBytes + data.count > self.maximumLocalInFlightBytes), !keyframe {
                         self.localSkipping = true
                         self.requestKeyFrameOnQueue(reason: CWL("本机显示积压"))
                         return
                     }
                     self.localInFlight += 1
+                    self.localInFlightBytes += data.count
                     DispatchQueue.main.async { [weak self] in
                         #if DEBUG
                         let mainStarted = ProcessInfo.processInfo.systemUptime
@@ -506,6 +511,7 @@ final class NativeReceiver {
                         self?.queue.async { [weak self] in
                             if let self {
                                 self.localInFlight = max(0, self.localInFlight - 1)
+                                self.localInFlightBytes = max(0, self.localInFlightBytes - data.count)
                                 #if DEBUG
                                 self.diagnosticMainDelay = max(self.diagnosticMainDelay, mainStarted - diagnosticArrival)
                                 self.diagnosticMainWork = max(self.diagnosticMainWork, mainElapsed)

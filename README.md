@@ -10,9 +10,20 @@ CarWithin 在同一台 iPhone 上启动、显示和触控本机 CarPlay。你可
 
 ## 下载与安装
 
-- [从 GitHub Releases 下载](https://github.com/xmz28/CarWithin/releases/latest)。当前版本为 **1.0.11（构建 23）**。
-- 下载 `CarWithin-1.0.11-unsigned.ipa`，用支持 IPA 的侧载工具按自己的签名方式签名并安装。按设备提示完成开发者信任或开启开发者模式。
+- [从 GitHub Releases 下载](https://github.com/xmz28/CarWithin/releases/latest)。当前版本为 **1.0.13（构建 25）**。
+- 下载 `CarWithin-1.0.13-unsigned.ipa`，用支持 IPA 的侧载工具按自己的签名方式签名并安装。按设备提示完成开发者信任或开启开发者模式。
 - 最低安装目标为 iOS/iPadOS 16.0，arm64；iOS 15 不支持安装。安装目标降低不等于所有旧系统均已实测，iOS 16.x 的本机 CarPlay、声音和后台行为仍需对应设备验证。实际可用性取决于设备、系统版本和签名方式。CarWithin 使用 iOS 私有接口，系统升级后可能需要重新验证。
+
+## 1.0.13 更新
+
+- 「诊断与实验 → 崩溃定位」新增“清除崩溃记录”，只删除崩溃报告和导出的诊断文件，不删除普通运行日志。
+- 保留原有“清除诊断日志”，可一次清除当前日志、上次会话日志和所有崩溃报告。
+
+## 1.0.12 更新
+
+- 修复春风/张雪仪表输出路径的内存暴涨：逐帧缩放和编码现在包在 `autoreleasepool` 中，及时释放每帧约 2MB 的 `CVPixelBuffer`/IOSurface 临时对象。
+- 为春风输出队列、浏览器输入队列和本机显示队列增加字节背压，避免大帧在 GCD 队列中堆积。
+- 诊断日志继续记录 `phys_footprint`，用于验证内存是否稳定。
 
 ## 1.0.11 更新
 

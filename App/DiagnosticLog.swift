@@ -186,13 +186,24 @@ final class DiagnosticLogStore {
         for url in [currentURL, previousURL] {
             try? fileManager.removeItem(at: url)
         }
-        for url in crashReportURLsLocked() {
-            try? fileManager.removeItem(at: url)
-        }
+        clearCrashReportsLocked()
         fileManager.createFile(atPath: currentURL.path, contents: nil)
         handle = try? FileHandle(forWritingTo: currentURL)
         writeLocked("[session] \(sessionHeader())")
         lock.unlock()
+    }
+
+    func clearCrashReports() {
+        lock.lock()
+        clearCrashReportsLocked()
+        lock.unlock()
+    }
+
+    private func clearCrashReportsLocked() {
+        for url in crashReportURLsLocked() {
+            try? fileManager.removeItem(at: url)
+        }
+        try? fileManager.removeItem(at: crashesURL.appendingPathComponent("CarWithin-diagnostics.txt"))
     }
 
     private func sessionHeader() -> String {

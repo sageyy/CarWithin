@@ -85,6 +85,8 @@ final class CfmotoOutput {
         private var cancelled = false
         private var acceptingFrames = true
         private var queued = 0
+        private var queuedBytes = 0
+        private let maximumQueuedBytes = 4 * 1024 * 1024
         private var skipping = false
         private var decoded: CVPixelBuffer?
         private var decodeError: Error?
@@ -185,20 +187,21 @@ final class CfmotoOutput {
         func append(_ data: Data, keyframe: Bool) {
             let (accepted, needsKeyframe) = lock.withLock {
                 guard !cancelled, acceptingFrames else { return (false, false) }
-                if queued >= 6 {
-                    let request = !skipping
+                if queued >= 6 || queuedBytes + data.count > maximumQueuedBytes {
+                    let request = !skipping || queuedBytes > maximumQueuedBytes / 2
                     skipping = true
                     return (false, request)
                 }
                 guard !skipping || keyframe else { return (false, false) }
                 skipping = false
                 queued += 1
+                queuedBytes += data.count
                 return (true, false)
             }
             if needsKeyframe { requestKeyframe() }
             guard accepted else { return }
             queue.async { [self] in
-                defer { lock.withLock { queued -= 1 } }
+                defer { lock.withLock { queued -= 1; queuedBytes = max(0, queuedBytes - data.count) } }
                 guard lock.withLock({ !cancelled && acceptingFrames }) else { return }
                 decode(data, keyframe: keyframe)
             }
@@ -250,37 +253,39 @@ final class CfmotoOutput {
         }
 
         private func encode(_ image: CVPixelBuffer, at now: Double, forceKeyframe: Bool) -> H264EncodedFrame? {
-            do {
-                if encoder == nil {
-                    guard now - lastCodecFailure >= 0.5 else { return nil }
-                    encoder = try H264Encoder(width: encodeWidth, height: encodeHeight,
-                                              fps: profile.fps, bitrate: profile.bitrate) { [weak self] result in
-                        guard let self else { return }
-                        self.lock.withLock { self.encoded = result }
+            autoreleasepool {
+                do {
+                    if encoder == nil {
+                        guard now - lastCodecFailure >= 0.5 else { return nil }
+                        encoder = try H264Encoder(width: encodeWidth, height: encodeHeight,
+                                                  fps: profile.fps, bitrate: profile.bitrate) { [weak self] result in
+                            guard let self else { return }
+                            self.lock.withLock { self.encoded = result }
+                        }
+                        lastKeyframe = -.infinity
                     }
+                    guard let encoder else { return nil }
+                    let stamp = CMTime(seconds: now, preferredTimescale: 1_000_000)
+                    try encoder.encode(try fittedImage(image), presentationTime: stamp,
+                                       forceKeyframe: forceKeyframe || lastKeyframe == -.infinity)
+                    encoder.complete()
+                    let result = lock.withLock {
+                        defer { encoded = nil }
+                        return encoded
+                    }
+                    let frame = try result?.get()
+                    if frame?.isKeyframe == true { lastKeyframe = now }
+                    return frame
+                } catch H264EncoderError.frameDropped {
+                    return nil
+                } catch {
+                    encoder?.invalidate()
+                    encoder = nil
                     lastKeyframe = -.infinity
+                    lock.withLock { encoded = nil }
+                    logCodecFailure("编码", error)
+                    return nil
                 }
-                guard let encoder else { return nil }
-                let stamp = CMTime(seconds: now, preferredTimescale: 1_000_000)
-                try encoder.encode(try fittedImage(image), presentationTime: stamp,
-                                   forceKeyframe: forceKeyframe || lastKeyframe == -.infinity)
-                encoder.complete()
-                let result = lock.withLock {
-                    defer { encoded = nil }
-                    return encoded
-                }
-                let frame = try result?.get()
-                if frame?.isKeyframe == true { lastKeyframe = now }
-                return frame
-            } catch H264EncoderError.frameDropped {
-                return nil
-            } catch {
-                encoder?.invalidate()
-                encoder = nil
-                lastKeyframe = -.infinity
-                lock.withLock { encoded = nil }
-                logCodecFailure("编码", error)
-                return nil
             }
         }
 
