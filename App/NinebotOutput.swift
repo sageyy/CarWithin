@@ -304,7 +304,7 @@ final class NinebotOutput {
             if fresh || lastJPEG == nil {
                 fresh = false
                 let bounds = CGRect(x: 0, y: 0, width: format.width, height: format.height)
-                lastJPEG = compositor.jpegRepresentation(of: fittedCanvas(latest, in: bounds), colorSpace: CGColorSpaceCreateDeviceRGB(),
+                lastJPEG = compositor.context.jpegRepresentation(of: fittedCanvas(latest, in: bounds), colorSpace: CGColorSpaceCreateDeviceRGB(),
                     options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.8])
                 if lastJPEG == nil {
                     logCodecFailure(CWL(" JPEG 编码"), ConfigurationError(CWL("无法生成九号 4.3 寸画面")))

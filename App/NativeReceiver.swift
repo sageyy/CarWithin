@@ -384,7 +384,6 @@ final class NativeReceiver {
         zeeho62.stop()
         ninebot.stop()
         cfmoto5.stop()
-        cfmoto62.stop()
         tailing.stop()
         carLink.stop()
         #if DEBUG
