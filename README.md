@@ -10,9 +10,14 @@ CarWithin 在同一台 iPhone 上启动、显示和触控本机 CarPlay。你可
 
 ## 下载与安装
 
-- [从 GitHub Releases 下载](https://github.com/xmz28/CarWithin/releases/latest)。当前版本为 **1.0.16（构建 28）**。
-- 下载 `CarWithin-1.0.16-unsigned.ipa`，用支持 IPA 的侧载工具按自己的签名方式签名并安装。按设备提示完成开发者信任或开启开发者模式。
+- [从 GitHub Releases 下载](https://github.com/xmz28/CarWithin/releases/latest)。当前版本为 **1.0.17（构建 29）**。
+- 下载 `CarWithin-1.0.17-unsigned.ipa`，用支持 IPA 的侧载工具按自己的签名方式签名并安装。按设备提示完成开发者信任或开启开发者模式。
 - 最低安装目标为 iOS/iPadOS 16.0，arm64；iOS 15 不支持安装。安装目标降低不等于所有旧系统均已实测，iOS 16.x 的本机 CarPlay、声音和后台行为仍需对应设备验证。实际可用性取决于设备、系统版本和签名方式。CarWithin 使用 iOS 私有接口，系统升级后可能需要重新验证。
+
+## 1.0.17 更新
+
+- 新增「打开 App 自动启动」选项：开启后每次打开 App 会自动开始投屏，车辆熄火导致 App 重启时也会自动重连仪表。首次使用仍需先配置好 Wi-Fi 和仪表。
+- 新增「自动加入仪表 Wi-Fi」选项：开启后启动时会主动加入已保存的仪表 Wi-Fi。此功能需要签名包含 Hotspot Configuration 权限（Apple 特殊授权），且系统会弹确认框；签名不支持时自动回退到系统 Wi-Fi 连接。
 
 ## 1.0.16 更新
 

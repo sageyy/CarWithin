@@ -228,6 +228,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private lazy var pictureInPicture = CarPlayPictureInPicture(surface: videoSurface)
     private let keepAlive = BackgroundKeepAlive()
     private let keepAliveSwitch = UISwitch()
+    private let autoStartSwitch = UISwitch()
+    private let autoJoinWiFiSwitch = UISwitch()
+    private var autoStartAttempted = false
     private let headUnitOutput = ChoiceMenu(items: HeadUnitOutput.menuOrder.map(\.title))
     private enum HeadUnitOutput: Int {
         // Persisted in headUnitOutputV2. Append new modes after existing values.
@@ -355,6 +358,20 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if !running { modeChanged() }
+        if !autoStartAttempted {
+            autoStartAttempted = true
+            if autoStartSwitch.isOn {
+                // 冷启动或熄火重启后自动连接；延迟让 UI 与网络地址就绪。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, !self.running, !self.waitingForNetwork else { return }
+                    if self.autoJoinWiFiSwitch.isOn {
+                        self.autoJoinWiFiThenStart()
+                    } else {
+                        self.toggleReceiver()
+                    }
+                }
+            }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             self?.checkForUpdates(manual: false)
         }
@@ -1004,6 +1021,40 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         if !keepAliveSwitch.isOn { keepAlive.stop() }
         else if running, UIApplication.shared.applicationState == .active { keepAlive.start() }
     }
+    @objc private func autoStartChanged() {
+        UserDefaults.standard.set(autoStartSwitch.isOn, forKey: "autoStartOnLaunch")
+    }
+    @objc private func autoJoinWiFiChanged() {
+        UserDefaults.standard.set(autoJoinWiFiSwitch.isOn, forKey: "autoJoinWiFi")
+    }
+
+    /// Try to join the saved dashboard Wi-Fi, then start casting. If the signing identity
+    /// lacks the Hotspot Configuration entitlement, log it and fall back to the system's
+    /// own Wi-Fi auto-join (the normal start path still runs).
+    private func autoJoinWiFiThenStart() {
+        let ssid = WiFiPresetStore.selected()?.ssid ?? (ssidField.text ?? "")
+        guard !ssid.isEmpty else {
+            log(CWL("自动加入 Wi-Fi 跳过：未配置仪表 Wi-Fi 预设")); toggleReceiver(); return
+        }
+        let password = (try? WiFiCredentials.password(for: ssid)) ?? ""
+        let isOpen = WiFiPresetStore.selected()?.isOpen ?? (openNetworkSwitch.isOn || password.isEmpty)
+        log(CWL("自动加入仪表 Wi-Fi：{1}", [ssid]))
+        WiFiAutoJoin.join(ssid: ssid, password: password, isOpen: isOpen) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success:
+                self.log(CWL("已加入仪表 Wi-Fi：{1}，等待 IP 分配", [ssid]))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    guard let self, !self.running, !self.waitingForNetwork else { return }
+                    self.toggleReceiver()
+                }
+            case .failure(let error):
+                self.log(CWL("自动加入 Wi-Fi 失败（{1}），改用系统 Wi-Fi 连接", [error.localizedDescription]))
+                self.toggleReceiver()
+            }
+        }
+    }
+
     @objc private func appearanceChanged() {
         UserDefaults.standard.set(appearanceControl.selectedSegmentIndex, forKey: "carPlayAppearance")
         applyAppearance()
@@ -2131,6 +2182,10 @@ extension ReceiverViewController {
         pictureInPictureTiming.addTarget(self, action: #selector(pictureInPictureTimingChanged), for: .valueChanged)
         keepAliveSwitch.isOn = defaults.object(forKey: "backgroundKeepAlive") as? Bool ?? true
         keepAliveSwitch.addTarget(self, action: #selector(keepAliveChanged), for: .valueChanged)
+        autoStartSwitch.isOn = defaults.bool(forKey: "autoStartOnLaunch")
+        autoStartSwitch.addTarget(self, action: #selector(autoStartChanged), for: .valueChanged)
+        autoJoinWiFiSwitch.isOn = defaults.bool(forKey: "autoJoinWiFi")
+        autoJoinWiFiSwitch.addTarget(self, action: #selector(autoJoinWiFiChanged), for: .valueChanged)
         let savedOutput = defaults.object(forKey: "headUnitOutputV2") as? Int
         let previousOutput = defaults.object(forKey: "headUnitOutput") as? Int
         let legacyOutput: HeadUnitOutput = defaults.bool(forKey: "carLifeEnabled") ? .carLife : .browser
@@ -2469,7 +2524,9 @@ extension ReceiverViewController {
                 SettingsSection("电池", [
                     .page("电池与 BMS", icon: ("battery.100", .systemGreen)) { [unowned self] in self.antBMS.settingsPage() }
                 ]),
-                SettingsSection(CWL("后台与画中画"), footer: CWL("锁屏前，请在 iPhone「设置 › 通用 › CarPlay › CarWithin」中打开「锁定时允许 CarPlay」。后台运行会增加耗电。画中画仅显示实时画面。离开 App 时自动开启需打开 iPhone「设置 › 通用 › 画中画」中的自动选项。"), [
+                SettingsSection(CWL("启动与后台"), footer: CWL("打开自动启动后，每次打开 App 会自动开始投屏；车辆熄火导致 App 重启后也会自动重连。自动加入 Wi-Fi 需签名包含 Hotspot Configuration 权限，且系统会弹出确认框；若签名不支持会自动回退到系统 Wi-Fi 连接。首次使用需先配置好 Wi-Fi 和仪表。锁屏前请在 iPhone「设置 › 通用 › CarPlay › CarWithin」打开「锁定时允许 CarPlay」。"), [
+                    .control(CWL("打开 App 自动启动"), icon: ("power", .systemGreen), autoStartSwitch),
+                    .control(CWL("自动加入仪表 Wi-Fi"), icon: ("wifi", .systemBlue), autoJoinWiFiSwitch),
                     .control(CWL("锁屏与后台继续运行"), icon: ("lock.fill", .systemPurple), keepAliveSwitch),
                     .control(CWL("画中画开启时机"), icon: ("pip.fill", .systemIndigo), pictureInPictureTiming)
                 ]),
