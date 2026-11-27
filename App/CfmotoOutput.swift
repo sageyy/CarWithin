@@ -85,12 +85,13 @@ final class CfmotoOutput {
     func start(localAddress: String, targetAddress: String, phone: TailingPhoneInfo, profile: CfmotoProfile,
                onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
                requestKeyframe: @escaping () -> Void,
-               onMediaSize: @escaping (Int, Int) -> Void) {
+               onMediaSize: @escaping (Int, Int) -> Void,
+               onConnectionFailed: @escaping () -> Void) {
         stop()
         let next = Session(queue: queue, localAddress: localAddress, targetAddress: targetAddress,
                            phone: phone, profile: profile,
                            onState: onState, onLog: onLog, requestKeyframe: requestKeyframe,
-                           onMediaSize: onMediaSize)
+                           onMediaSize: onMediaSize, onConnectionFailed: onConnectionFailed)
         sessionLock.lock()
         session = next
         sessionLock.unlock()
@@ -121,6 +122,7 @@ final class CfmotoOutput {
         let onLog: (String) -> Void
         let requestKeyframe: () -> Void
         let onMediaSize: (Int, Int) -> Void
+        let onConnectionFailed: () -> Void
         private let lock = NSLock()
         private var cancelled = false
         private var acceptingFrames = true
@@ -151,7 +153,8 @@ final class CfmotoOutput {
 
         init(queue: DispatchQueue, localAddress: String, targetAddress: String, phone: TailingPhoneInfo,
              profile: CfmotoProfile, onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
-             requestKeyframe: @escaping () -> Void, onMediaSize: @escaping (Int, Int) -> Void) {
+             requestKeyframe: @escaping () -> Void, onMediaSize: @escaping (Int, Int) -> Void,
+             onConnectionFailed: @escaping () -> Void) {
             self.queue = queue
             self.profile = profile
             self.encodeWidth = profile.pxcWidth
@@ -163,6 +166,7 @@ final class CfmotoOutput {
             self.onLog = onLog
             self.requestKeyframe = requestKeyframe
             self.onMediaSize = onMediaSize
+            self.onConnectionFailed = onConnectionFailed
         }
 
         func start() {
@@ -228,6 +232,7 @@ final class CfmotoOutput {
                     if active {
                         onLog("\(profile.label)输出失败：\(error.localizedDescription)")
                         report("\(profile.label)连接失败：\(error.localizedDescription)")
+                        onConnectionFailed()
                     }
                 }
                 connection.close()

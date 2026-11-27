@@ -237,6 +237,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     /// 用户主动点停止后不再自动重连；熄火等被动断开保持 false，允许 Wi-Fi 恢复时重连。
     private var userStopped = false
     private var autoReconnectWork: Task<Void, Never>?
+    /// 仪表链路连续重连次数；成功握手后归零，避免熄火期间无限重试。
+    private var cfmotoReconnectCount = 0
     private let headUnitOutput = ChoiceMenu(items: HeadUnitOutput.menuOrder.map(\.title))
     private enum HeadUnitOutput: Int {
         // Persisted in headUnitOutputV2. Append new modes after existing values.
@@ -743,7 +745,34 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             self.updateCfmotoStatus(message)
         }
         receiver.onCfmotoMediaSize = { [weak self] width, height in
-            self?.adaptToCfmotoMediaSize(width: width, height: height)
+            guard let self else { return }
+            self.cfmotoReconnectCount = 0
+            self.adaptToCfmotoMediaSize(width: width, height: height)
+        }
+        receiver.onCfmotoConnectionFailed = { [weak self] in
+            guard let self, self.running, !self.userStopped, self.autoStartSwitch.isOn else { return }
+            guard self.cfmotoReconnectCount < 5 else {
+                self.log(CWL("仪表链路连续重连 5 次仍失败，停止自动重试"))
+                return
+            }
+            self.cfmotoReconnectCount += 1
+            // 熄火时断的是仪表 PXC 链路，CarPlay 事件通道仍在；重启整个会话让仪表重新握手。
+            self.autoReconnectWork?.cancel()
+            self.autoReconnectWork = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let self, !Task.isCancelled, self.running, !self.userStopped,
+                      self.autoStartSwitch.isOn else { return }
+                self.log(CWL("仪表链路中断，重启 CarPlay 重新连接"))
+                // 保持后台保活贯穿整个重启，避免熄屏时 1.5s 空窗把 App 挂起。
+                let keep = self.keepAliveSwitch.isOn
+                self.stop()
+                if keep { self.keepAlive.start() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, !self.running, !self.userStopped else { return }
+                    if keep { self.keepAlive.start() }
+                    self.toggleReceiver()
+                }
+            }
         }
         receiver.onNinebotState = { [weak self] message in
             guard let self, self.running, self.outputMode.ninebotMode != nil else { return }

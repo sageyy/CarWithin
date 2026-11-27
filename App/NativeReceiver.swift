@@ -98,6 +98,8 @@ final class NativeReceiver {
     var onFailure: (() -> Void)?
     /// CarPlay's event channel dropped unexpectedly (not during an explicit stop).
     var onCarPlayDisconnected: (() -> Void)?
+    /// The CFMOTO/ZXMOTO instrument link failed while CarPlay itself is still running.
+    var onCfmotoConnectionFailed: (() -> Void)?
     private var stopping = false
 
     /// BMS updates are serialized with output startup; CoreGraphics images are
@@ -163,6 +165,10 @@ final class NativeReceiver {
                              requestKeyframe: { [weak self] in self?.requestKeyFrame(reason: "春风解码恢复") },
                              onMediaSize: { [weak self] width, height in
                                  DispatchQueue.main.async { self?.onCfmotoMediaSize?(width, height) }
+                             },
+                             onConnectionFailed: { [weak self] in
+                                 guard let self, !self.stopping else { return }
+                                 DispatchQueue.main.async { self.onCfmotoConnectionFailed?() }
                              })
             }
             if let target = configuration.ninebotAddress {
