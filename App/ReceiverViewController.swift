@@ -237,6 +237,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     /// 用户主动点停止后不再自动重连；熄火等被动断开保持 false，允许 Wi-Fi 恢复时重连。
     private var userStopped = false
     private var autoReconnectWork: Task<Void, Never>?
+    /// 每次请求重连递增；旧任务执行时发现 generation 已变就退出，避免多路重连互相干扰。
+    private var reconnectGeneration = 0
     /// 仪表链路连续重连次数；成功握手后归零，避免熄火期间无限重试。
     private var cfmotoReconnectCount = 0
     private let headUnitOutput = ChoiceMenu(items: HeadUnitOutput.menuOrder.map(\.title))
@@ -751,28 +753,12 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
         receiver.onCfmotoConnectionFailed = { [weak self] in
             guard let self, self.running, !self.userStopped, self.autoStartSwitch.isOn else { return }
-            guard self.cfmotoReconnectCount < 5 else {
-                self.log(CWL("仪表链路连续重连 5 次仍失败，停止自动重试"))
+            guard self.cfmotoReconnectCount < 8 else {
+                self.log(CWL("仪表链路连续重连 8 次仍失败，停止自动重试"))
                 return
             }
             self.cfmotoReconnectCount += 1
-            // 熄火时断的是仪表 PXC 链路，CarPlay 事件通道仍在；重启整个会话让仪表重新握手。
-            self.autoReconnectWork?.cancel()
-            self.autoReconnectWork = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard let self, !Task.isCancelled, self.running, !self.userStopped,
-                      self.autoStartSwitch.isOn else { return }
-                self.log(CWL("仪表链路中断，重启 CarPlay 重新连接"))
-                // 保持后台保活贯穿整个重启，避免熄屏时 1.5s 空窗把 App 挂起。
-                let keep = self.keepAliveSwitch.isOn
-                self.stop()
-                if keep { self.keepAlive.start() }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                    guard let self, !self.running, !self.userStopped else { return }
-                    if keep { self.keepAlive.start() }
-                    self.toggleReceiver()
-                }
-            }
+            self.requestAutoReconnect(reason: "仪表链路中断", delay: 3, needsStop: true)
         }
         receiver.onNinebotState = { [weak self] message in
             guard let self, self.running, self.outputMode.ninebotMode != nil else { return }
@@ -837,21 +823,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             guard let self, self.running, !self.userStopped else { return }
             let shouldReconnect = self.autoStartSwitch.isOn
             self.stop()  // 清理会话，running 置 false
-            // stop() 会关闭后台保持；等待重连期间需重新保活，否则熄屏时 App 会被挂起。
             if shouldReconnect, self.keepAliveSwitch.isOn { self.keepAlive.start() }
             self.statusLabel.text = shouldReconnect
                 ? CWL("仪表已断开，等待重新连接…") : CWL("仪表已断开")
             guard shouldReconnect else { return }
-            self.autoReconnectWork?.cancel()
-            self.autoReconnectWork = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard let self, !Task.isCancelled, !self.userStopped, !self.running,
-                      self.autoStartSwitch.isOn else { return }
-                self.log(CWL("事件通道断开后自动重连"))
-                if self.keepAliveSwitch.isOn { self.keepAlive.start() }
-                if self.autoJoinWiFiSwitch.isOn { self.autoJoinWiFiThenStart() }
-                else { self.toggleReceiver() }
-            }
+            self.requestAutoReconnect(reason: "事件通道断开", delay: 3, needsStop: false)
         }
         bluetooth.onFailure = { [weak self] message in
             self?.stop()
@@ -890,20 +866,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             self?.stop()
             self?.statusLabel.text = message
             guard let self, self.autoStartSwitch.isOn, !self.userStopped, self.autoStartAttempted else { return }
-            // stop() 关闭了后台保持；等待重连期间重新保活，熄屏时 App 才不会被挂起。
             if self.keepAliveSwitch.isOn { self.keepAlive.start() }
-            // CarPlay 会话被动结束（如熄火）。延迟等待仪表/Wi-Fi 恢复后自动重连，
-            // userStopped 保证用户主动点停止时不会重连。
-            self.autoReconnectWork?.cancel()
-            self.autoReconnectWork = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard let self, !Task.isCancelled, self.autoStartSwitch.isOn, !self.userStopped,
-                      !self.running, !self.waitingForNetwork else { return }
-                self.log(CWL("CarPlay 会话已断开，自动重连"))
-                if self.keepAliveSwitch.isOn { self.keepAlive.start() }
-                if self.autoJoinWiFiSwitch.isOn { self.autoJoinWiFiThenStart() }
-                else { self.toggleReceiver() }
-            }
+            self.requestAutoReconnect(reason: "CarPlay 会话结束", delay: 3, needsStop: false)
         }
         #if DEBUG
         // Clears screens recorded by automated tests with a simulated browser.
@@ -919,20 +883,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 // 车子熄火后仪表 Wi-Fi 消失、CarPlay 被动断开；Wi-Fi 恢复时自动重连。
                 guard path.status == .satisfied, self.autoStartSwitch.isOn, !self.userStopped,
                       !self.running, !self.waitingForNetwork, self.autoStartAttempted else { return }
-                self.autoReconnectWork?.cancel()
-                self.autoReconnectWork = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)  // 等 IP 稳定
-                    guard let self, !Task.isCancelled, self.autoStartSwitch.isOn, !self.userStopped,
-                          !self.running, !self.waitingForNetwork else { return }
-                    // 后台熄屏时只要后台保持可用就重连；无保活时 App 会被挂起，留给回前台重连。
-                    let inBackground = UIApplication.shared.applicationState != .active
-                    if inBackground && !self.keepAliveSwitch.isOn { return }
-                    self.log(CWL("仪表 Wi-Fi 已恢复，自动重连 CarPlay（{1}）",
-                                 [inBackground ? CWL("后台") : CWL("前台")]))
-                    if self.keepAliveSwitch.isOn { self.keepAlive.start() }
-                    if self.autoJoinWiFiSwitch.isOn { self.autoJoinWiFiThenStart() }
-                    else { self.toggleReceiver() }
-                }
+                // 后台熄屏时无保活 App 会被挂起，留给回前台重连。
+                if UIApplication.shared.applicationState != .active, !self.keepAliveSwitch.isOn { return }
+                self.requestAutoReconnect(reason: "仪表 Wi-Fi 已恢复", delay: 2, needsStop: false)
             }
         }
         wifiPathMonitor.start(queue: DispatchQueue(label: "CarWithin.wifiPath"))
@@ -1707,7 +1660,13 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
     }
     @objc private func toggleReceiver() {
-        if running || waitingForNetwork { userStopped = true; autoReconnectWork?.cancel(); stop(); return }
+        if running || waitingForNetwork {
+            userStopped = true
+            reconnectGeneration += 1
+            autoReconnectWork?.cancel()
+            stop()
+            return
+        }
         userStopped = false
         if !restartingAutomatically { networkRestartCount = 0 }
         clearStartupHint()
@@ -1936,6 +1895,30 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         modeChanged()
         statusLabel.text = identity == nil ? CWL("需要导入 MFi 身份") : CWL("已停止")
         log(CWL("CarPlay 接收已停止"))
+    }
+
+    /// 统一的自动重连入口。所有熄火/断链场景都走这里，避免多个 Task 互相 cancel。
+    private func requestAutoReconnect(reason: String, delay: TimeInterval, needsStop: Bool) {
+        guard autoStartSwitch.isOn, !userStopped else { return }
+        reconnectGeneration += 1
+        let generation = reconnectGeneration
+        autoReconnectWork?.cancel()
+        autoReconnectWork = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, !Task.isCancelled, generation == self.reconnectGeneration,
+                  self.autoStartSwitch.isOn, !self.userStopped else { return }
+            self.log(CWL("{1}，自动重连", [reason]))
+            let keep = self.keepAliveSwitch.isOn
+            if needsStop, self.running { self.stop() }
+            if keep { self.keepAlive.start() }
+            // 短暂延迟让 Wi-Fi/仪表就绪；不依赖 running 状态（可能已被被动 stop）。
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled, generation == self.reconnectGeneration,
+                  self.autoStartSwitch.isOn, !self.userStopped, !self.running else { return }
+            if keep { self.keepAlive.start() }
+            if self.autoJoinWiFiSwitch.isOn { self.autoJoinWiFiThenStart() }
+            else { self.toggleReceiver() }
+        }
     }
 
     private func clearStartupHint() {
@@ -2197,15 +2180,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             if !waitingForNetwork { modeChanged() }
             // 熄火等被动断开后回到前台，若自动启动开启则重连。
             if autoStartSwitch.isOn, !userStopped, autoStartAttempted {
-                autoReconnectWork?.cancel()
-                autoReconnectWork = Task { [weak self] in
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                    guard let self, !Task.isCancelled, self.autoStartSwitch.isOn, !self.userStopped,
-                          !self.running, !self.waitingForNetwork else { return }
-                    self.log(CWL("回到前台，自动重连 CarPlay"))
-                    if self.autoJoinWiFiSwitch.isOn { self.autoJoinWiFiThenStart() }
-                    else { self.toggleReceiver() }
-                }
+                requestAutoReconnect(reason: "回到前台", delay: 1, needsStop: false)
             }
             return
         }

@@ -10,9 +10,13 @@ CarWithin runs CarPlay on the same iPhone that generates its interface. Use CarP
 
 ## Download and install
 
-- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.21 (build 33)**.
-- Download `CarWithin-1.0.21-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
+- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.22 (build 34)**.
+- Download `CarWithin-1.0.22-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
 - The minimum installation target is iOS/iPadOS 16.0 on arm64; iOS 15 is not supported. Same-device CarPlay, audio, and background behavior still need testing on iOS 16.x hardware. CarWithin uses private iOS interfaces. Compatibility depends on the device, OS version, and signing setup, and OS updates can affect it.
+
+## What is new in 1.0.22
+
+- Refactored auto-reconnect into a single entry point with a generation guard so multiple reconnect sources can no longer cancel each other. Fixes the case where reconnect only happened after unlocking the phone; screen-on, screen-off, and unlock now share the same keep-alive reconnect path.
 
 ## What is new in 1.0.21
 
