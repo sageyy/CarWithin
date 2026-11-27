@@ -96,6 +96,9 @@ final class NativeReceiver {
     var onAirPlayReady: ((UUID) -> Void)?
     var onVideoOutputState: ((String) -> Void)?
     var onFailure: (() -> Void)?
+    /// CarPlay's event channel dropped unexpectedly (not during an explicit stop).
+    var onCarPlayDisconnected: (() -> Void)?
+    private var stopping = false
 
     /// BMS updates are serialized with output startup; CoreGraphics images are
     /// immutable and reused by the instrument encoder until the next update.
@@ -376,6 +379,8 @@ final class NativeReceiver {
         (try? AnnexB.units(in: accessUnit))?.contains { codec.isRandomAccess($0) } ?? false
     }
     private func stopOnQueue() {
+        stopping = true
+        defer { stopping = false }
         DispatchQueue.main.async { [weak self] in self?.discoveryService?.stop(); self?.discoveryService = nil }
         generation = UUID(); listener?.cancel(); listener = nil
         videoOutput.stop()
@@ -462,6 +467,11 @@ final class NativeReceiver {
                 let media = CarPlayMediaSession(queue: queue, secret: secret, peerAddress: state.peerAddress,
                                                 audioEnabled: configuration.audioEnabled, hevc: configuration.videoCodec == .h265)
                 media.onLog = { [weak self] in self?.log($0) }
+                media.onEventChannelClosed = { [weak self] in
+                    guard let self, !self.stopping else { return }
+                    self.log(CWL("CarPlay 事件通道意外断开，等待重连"))
+                    DispatchQueue.main.async { self.onCarPlayDisconnected?() }
+                }
                 if configuration.browserAudio {
                     media.onBrowserAudio = { [weak self] stream, buffer, stamp in
                         self?.videoOutput.appendAudio(buffer, stream: stream, stamp: stamp)

@@ -62,6 +62,12 @@ final class DiagnosticLogStore {
     private let crashesURL: URL
     private var handle: FileHandle?
     private var memoryLogCounter = 0
+    /// Keep the on-disk session log bounded. Export already tail-truncates, so trimming the
+    /// oldest bytes loses nothing that would be shown to the user.
+    private var writtenBytesSinceTrim = 0
+    private static let trimCheckBytes = 256 * 1024
+    private static let maxLogBytes = 2 * 1024 * 1024
+    private static let keptLogBytes = 1 * 1024 * 1024
 
     private init() {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -234,8 +240,25 @@ final class DiagnosticLogStore {
 
     private func writeLocked(_ line: String) {
         guard let handle else { return }
+        let data = Data((line + "\n").utf8)
         handle.seekToEndOfFile()
-        handle.write(Data((line + "\n").utf8))
+        handle.write(data)
+        writtenBytesSinceTrim += data.count
+        guard writtenBytesSinceTrim >= Self.trimCheckBytes else { return }
+        writtenBytesSinceTrim = 0
+        trimLogIfNeededLocked()
+    }
+
+    /// 磁盘日志超过 2MB 时保留尾部 1MB，避免长时间运行或高频日志导致文件无限增长。
+    private func trimLogIfNeededLocked() {
+        guard let size = try? fileManager.attributesOfItem(atPath: currentURL.path)[.size] as? NSNumber,
+              size.intValue > Self.maxLogBytes else { return }
+        guard let text = try? String(contentsOf: currentURL, encoding: .utf8),
+              text.utf8.count > Self.keptLogBytes else { return }
+        let kept = String(text.suffix(Self.keptLogBytes))
+        closeHandleLocked()
+        try? ("[session] 日志已自动裁剪（保留最近内容）\n" + kept).write(to: currentURL, atomically: true, encoding: .utf8)
+        handle = try? FileHandle(forWritingTo: currentURL)
     }
 
     private func closeHandleLocked() {

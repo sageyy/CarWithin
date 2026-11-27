@@ -23,6 +23,8 @@ final class CarPlayMediaSession {
     private var videoPackets = 0
     private var videoBytes = 0
     var onLog: ((String) -> Void)?
+    /// CarPlay's event channel dropped (e.g. bike switched off). Not fired on an explicit stop().
+    var onEventChannelClosed: (() -> Void)?
     var onBrowserAudio: ((Int, AVAudioPCMBuffer, UInt64) -> Void)?
     var onVideo: ((Data, VideoCodec) -> Void)?
     init(queue: DispatchQueue, secret: SymmetricKey, peerAddress: String, audioEnabled: Bool, hevc: Bool) {
@@ -138,7 +140,12 @@ final class CarPlayMediaSession {
                 try connection.send(cipher.encrypt(RTSPResponse().encoded(for: request)))
             }
         }
-        connection.onClose = { [weak self] in self?.event = nil; self?.eventCipher = nil; self?.onLog?(CWL("事件通道已关闭")) }
+        connection.onClose = { [weak self] in
+            guard let self else { return }
+            self.event = nil; self.eventCipher = nil
+            self.onLog?(CWL("事件通道已关闭"))
+            self.onEventChannelClosed?()
+        }
         connection.start()
         flushNightMode()
     }
