@@ -10,9 +10,14 @@ CarWithin runs CarPlay on the same iPhone that generates its interface. Use CarP
 
 ## Download and install
 
-- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.22 (build 34)**.
-- Download `CarWithin-1.0.22-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
+- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.23 (build 35)**.
+- Download `CarWithin-1.0.23-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
 - The minimum installation target is iOS/iPadOS 16.0 on arm64; iOS 15 is not supported. Same-device CarPlay, audio, and background behavior still need testing on iOS 16.x hardware. CarWithin uses private iOS interfaces. Compatibility depends on the device, OS version, and signing setup, and OS updates can affect it.
+
+## What is new in 1.0.23
+
+- Auto-reconnect now verifies the iPhone is on the dashboard Wi-Fi subnet and adds throttling. When the phone is stuck on a personal hotspot or another network, it no longer burns through retries; it waits until the dashboard subnet is back. A reconnect in progress is no longer cancelled by repeated network-flap callbacks.
+- Auto-join Wi-Fi failures now log the specific error code, making it easier to distinguish missing entitlement, background restrictions, or a wrong password.
 
 ## What is new in 1.0.22
 

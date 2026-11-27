@@ -239,6 +239,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private var autoReconnectWork: Task<Void, Never>?
     /// 每次请求重连递增；旧任务执行时发现 generation 已变就退出，避免多路重连互相干扰。
     private var reconnectGeneration = 0
+    /// 重连节流：Wi-Fi 抖动会连续触发多次"已恢复"，避免在启动中途反复取消重启。
+    private var lastReconnectRequestAt: Date?
+    private var reconnectInFlight = false
     /// 仪表链路连续重连次数；成功握手后归零，避免熄火期间无限重试。
     private var cfmotoReconnectCount = 0
     private let headUnitOutput = ChoiceMenu(items: HeadUnitOutput.menuOrder.map(\.title))
@@ -883,6 +886,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 // 车子熄火后仪表 Wi-Fi 消失、CarPlay 被动断开；Wi-Fi 恢复时自动重连。
                 guard path.status == .satisfied, self.autoStartSwitch.isOn, !self.userStopped,
                       !self.running, !self.waitingForNetwork, self.autoStartAttempted else { return }
+                // 必须已经连到仪表 Wi-Fi 网段；连在个人热点等错误网络时不算"仪表已恢复"。
+                guard self.instrumentWiFiReady() else { return }
                 // 后台熄屏时无保活 App 会被挂起，留给回前台重连。
                 if UIApplication.shared.applicationState != .active, !self.keepAliveSwitch.isOn { return }
                 self.requestAutoReconnect(reason: "仪表 Wi-Fi 已恢复", delay: 2, needsStop: false)
@@ -1100,7 +1105,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                     self.toggleReceiver()
                 }
             case .failure(let error):
-                self.log(CWL("自动加入 Wi-Fi 失败（{1}），改用系统 Wi-Fi 连接", [error.localizedDescription]))
+                self.log(CWL("自动加入 Wi-Fi 失败（{1}），改用系统 Wi-Fi 连接", [WiFiAutoJoin.describe(error)]))
                 self.toggleReceiver()
             }
         }
@@ -1797,6 +1802,22 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         outputMode.usesInstrumentWiFi ? ReceiverConfiguration.wifiIPv4Address() : browserAddress
     }
 
+    /// 仪表 Wi-Fi 未连上时，iPhone 可能停在 192.168.3.x（个人热点等）而仪表在 192.168.0.x。
+    /// 此时盲目重连只会探测失败；必须等 Wi-Fi 恢复到同网段。
+    private func instrumentWiFiReady() -> Bool {
+        guard outputMode.cfmoto else { return true }
+        let target = (cfmotoAddressField.text ?? "192.168.0.1").trimmingCharacters(in: .whitespaces)
+        let local = ReceiverConfiguration.wifiIPv4Address() ?? ""
+        func subnet(_ ip: String) -> String {
+            let parts = ip.split(separator: ".", omittingEmptySubsequences: false)
+            guard parts.count == 4 else { return "" }
+            return "\(parts[0]).\(parts[1]).\(parts[2])"
+        }
+        let targetSubnet = subnet(target)
+        let localSubnet = subnet(local)
+        return !targetSubnet.isEmpty && localSubnet == targetSubnet
+    }
+
     private func refreshNetworkAddresses() {
         refreshBrowserAddressLabels()
     }
@@ -1900,10 +1921,16 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     /// 统一的自动重连入口。所有熄火/断链场景都走这里，避免多个 Task 互相 cancel。
     private func requestAutoReconnect(reason: String, delay: TimeInterval, needsStop: Bool) {
         guard autoStartSwitch.isOn, !userStopped else { return }
+        // 已有重连在执行就不打断；Wi-Fi 抖动产生的连续回调直接忽略。
+        if reconnectInFlight { return }
+        if let last = lastReconnectRequestAt, Date().timeIntervalSince(last) < 5 { return }
+        lastReconnectRequestAt = Date()
+        reconnectInFlight = true
         reconnectGeneration += 1
         let generation = reconnectGeneration
         autoReconnectWork?.cancel()
         autoReconnectWork = Task { [weak self] in
+            defer { Task { @MainActor in self?.reconnectInFlight = false } }
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard let self, !Task.isCancelled, generation == self.reconnectGeneration,
                   self.autoStartSwitch.isOn, !self.userStopped else { return }
@@ -1911,10 +1938,13 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             let keep = self.keepAliveSwitch.isOn
             if needsStop, self.running { self.stop() }
             if keep { self.keepAlive.start() }
-            // 短暂延迟让 Wi-Fi/仪表就绪；不依赖 running 状态（可能已被被动 stop）。
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled, generation == self.reconnectGeneration,
                   self.autoStartSwitch.isOn, !self.userStopped, !self.running else { return }
+            guard self.instrumentWiFiReady() else {
+                self.log(CWL("iPhone 未连接仪表 Wi-Fi，等待网络恢复后再重连"))
+                return
+            }
             if keep { self.keepAlive.start() }
             if self.autoJoinWiFiSwitch.isOn { self.autoJoinWiFiThenStart() }
             else { self.toggleReceiver() }
