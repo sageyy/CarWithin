@@ -10,9 +10,13 @@ CarWithin runs CarPlay on the same iPhone that generates its interface. Use CarP
 
 ## Download and install
 
-- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.18 (build 30)**.
-- Download `CarWithin-1.0.18-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
+- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.19 (build 31)**.
+- Download `CarWithin-1.0.19-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
 - The minimum installation target is iOS/iPadOS 16.0 on arm64; iOS 15 is not supported. Same-device CarPlay, audio, and background behavior still need testing on iOS 16.x hardware. CarWithin uses private iOS interfaces. Compatibility depends on the device, OS version, and signing setup, and OS updates can affect it.
+
+## What is new in 1.0.19
+
+- Fixed CarPlay not reconnecting when the bike restarts while the iPhone screen is locked. With background keep-alive enabled, Wi-Fi recovery now triggers a background reconnect and restores keep-alive; keep-alive is no longer stopped while waiting to reconnect.
 
 ## What is new in 1.0.18
 

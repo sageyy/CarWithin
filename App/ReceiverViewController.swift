@@ -795,15 +795,20 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         receiver.onFailure = { [weak self] in self?.stop() }
         receiver.onCarPlayDisconnected = { [weak self] in
             guard let self, self.running, !self.userStopped else { return }
+            let shouldReconnect = self.autoStartSwitch.isOn
             self.stop()  // 清理会话，running 置 false
-            self.statusLabel.text = self.autoStartSwitch.isOn
+            // stop() 会关闭后台保持；等待重连期间需重新保活，否则熄屏时 App 会被挂起。
+            if shouldReconnect, self.keepAliveSwitch.isOn { self.keepAlive.start() }
+            self.statusLabel.text = shouldReconnect
                 ? CWL("仪表已断开，等待重新连接…") : CWL("仪表已断开")
+            guard shouldReconnect else { return }
             self.autoReconnectWork?.cancel()
             self.autoReconnectWork = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
                 guard let self, !Task.isCancelled, !self.userStopped, !self.running,
                       self.autoStartSwitch.isOn else { return }
                 self.log(CWL("事件通道断开后自动重连"))
+                if self.keepAliveSwitch.isOn { self.keepAlive.start() }
                 if self.autoJoinWiFiSwitch.isOn { self.autoJoinWiFiThenStart() }
                 else { self.toggleReceiver() }
             }
@@ -845,6 +850,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             self?.stop()
             self?.statusLabel.text = message
             guard let self, self.autoStartSwitch.isOn, !self.userStopped, self.autoStartAttempted else { return }
+            // stop() 关闭了后台保持；等待重连期间重新保活，熄屏时 App 才不会被挂起。
+            if self.keepAliveSwitch.isOn { self.keepAlive.start() }
             // CarPlay 会话被动结束（如熄火）。延迟等待仪表/Wi-Fi 恢复后自动重连，
             // userStopped 保证用户主动点停止时不会重连。
             self.autoReconnectWork?.cancel()
@@ -853,6 +860,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 guard let self, !Task.isCancelled, self.autoStartSwitch.isOn, !self.userStopped,
                       !self.running, !self.waitingForNetwork else { return }
                 self.log(CWL("CarPlay 会话已断开，自动重连"))
+                if self.keepAliveSwitch.isOn { self.keepAlive.start() }
                 if self.autoJoinWiFiSwitch.isOn { self.autoJoinWiFiThenStart() }
                 else { self.toggleReceiver() }
             }
@@ -875,9 +883,13 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 self.autoReconnectWork = Task { [weak self] in
                     try? await Task.sleep(nanoseconds: 2_000_000_000)  // 等 IP 稳定
                     guard let self, !Task.isCancelled, self.autoStartSwitch.isOn, !self.userStopped,
-                          !self.running, !self.waitingForNetwork,
-                          UIApplication.shared.applicationState == .active else { return }
-                    self.log(CWL("仪表 Wi-Fi 已恢复，自动重连 CarPlay"))
+                          !self.running, !self.waitingForNetwork else { return }
+                    // 后台熄屏时只要后台保持可用就重连；无保活时 App 会被挂起，留给回前台重连。
+                    let inBackground = UIApplication.shared.applicationState != .active
+                    if inBackground && !self.keepAliveSwitch.isOn { return }
+                    self.log(CWL("仪表 Wi-Fi 已恢复，自动重连 CarPlay（{1}）",
+                                 [inBackground ? CWL("后台") : CWL("前台")]))
+                    if self.keepAliveSwitch.isOn { self.keepAlive.start() }
                     if self.autoJoinWiFiSwitch.isOn { self.autoJoinWiFiThenStart() }
                     else { self.toggleReceiver() }
                 }
@@ -1803,7 +1815,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled, let self else { return }
                 let address = self.localCarPlayAddress
-                if let address, address == candidate, UIApplication.shared.applicationState == .active {
+                // 后台保活时也允许等 IP 后自动重连（熄火重启场景）；地址需连续两次一致。
+                if let address, address == candidate {
                     self.waitingForNetwork = false
                     self.modeControl.isEnabled = true
                     self.setEditing(true)
