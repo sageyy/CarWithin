@@ -11,19 +11,22 @@ struct CfmotoProfile: Equatable {
     let fps: Int
     let bitrate: Int
     let label: String
+    /// 协商尺寸的持久化前缀；春风与张雪各自记住自己的仪表尺寸。
+    let storageKey: String
 
-    static let fiveInch = CfmotoProfile(width: 800, height: 386, fps: 30, bitrate: 3_500_000, label: "春风 5 寸")
-    static let sixInch = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "春风 6.2 寸")
+    static let fiveInch = CfmotoProfile(width: 800, height: 386, fps: 30, bitrate: 3_500_000, label: "春风 5 寸", storageKey: "cfmoto")
+    static let sixInch = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "春风 6.2 寸", storageKey: "cfmoto")
 
     /// 张雪（ZXMOTO）仪表与春风共用 PXC 协议。公开资料确认：500RR 为 5 寸 TFT，
     /// 820RR / 820R 为 6.2 寸 TFT，均支持手机连接与导航投屏；这里保留实测像素
     /// 500RR 800×386、820RR / 820R 1024×515，实际编码尺寸仍以仪表媒体协商上报为准。
-    static let zhangxue500RR = CfmotoProfile(width: 800, height: 386, fps: 30, bitrate: 3_500_000, label: "张雪 500RR")
-    static let zhangxue820RR = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "张雪 820RR")
-    static let zhangxue820R = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "张雪 820R")
+    static let zhangxue500RR = CfmotoProfile(width: 800, height: 386, fps: 30, bitrate: 3_500_000, label: "张雪 500RR", storageKey: "zhangxue")
+    static let zhangxue820RR = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "张雪 820RR", storageKey: "zhangxue")
+    static let zhangxue820R = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "张雪 820R", storageKey: "zhangxue")
 
-    /// 合并后的自适应入口：初始按 1024×515 规划画面，连上仪表后改用握手上报的尺寸。
-    static let adaptive = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "春风/张雪仪表")
+    /// 自适应入口：初始按 1024×515 规划画面，连上仪表后改用握手上报的尺寸。
+    static let adaptiveCfmoto = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "春风仪表", storageKey: "cfmoto")
+    static let adaptiveZhangxue = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "张雪仪表", storageKey: "zhangxue")
 
     /// 按实际编码像素数推导码率：以 1024×515 @ 4.5Mbps 为基准，限制在 3–12Mbps。
     static func bitrate(for width: Int, height: Int) -> Int {
@@ -33,22 +36,27 @@ struct CfmotoProfile: Equatable {
     }
 
     /// 上次握手成功记录的仪表尺寸，供下次启动 CarPlay 前规划原生分辨率。
-    static var negotiatedDisplaySize: (width: Int, height: Int)? {
+    func negotiatedDisplaySize() -> (width: Int, height: Int)? {
         let defaults = UserDefaults.standard
-        let width = defaults.integer(forKey: "cfmotoMediaWidth")
-        let height = defaults.integer(forKey: "cfmotoMediaHeight")
+        var width = defaults.integer(forKey: storageKey + "MediaWidth")
+        var height = defaults.integer(forKey: storageKey + "MediaHeight")
+        // 旧版统一用 cfmotoMedia*；春风沿用该值，张雪首次连接会写入自己的 key。
+        if width == 0 || height == 0 {
+            width = defaults.integer(forKey: "cfmotoMediaWidth")
+            height = defaults.integer(forKey: "cfmotoMediaHeight")
+        }
         guard (320...3840).contains(width), (320...3840).contains(height),
               width % 2 == 0, height % 2 == 0, width * height <= 3840 * 2160 else { return nil }
         return (width, height)
     }
 
-    static func saveNegotiatedDisplaySize(width: Int, height: Int) {
+    func saveNegotiatedDisplaySize(width: Int, height: Int) {
         let safeWidth = min(3840, max(320, width - width % 2))
         let safeHeight = min(3840, max(320, height - height % 2))
         guard safeWidth * safeHeight <= 3840 * 2160 else { return }
         let defaults = UserDefaults.standard
-        defaults.set(safeWidth, forKey: "cfmotoMediaWidth")
-        defaults.set(safeHeight, forKey: "cfmotoMediaHeight")
+        defaults.set(safeWidth, forKey: storageKey + "MediaWidth")
+        defaults.set(safeHeight, forKey: storageKey + "MediaHeight")
     }
 
     var encodeWidth: Int { width - width % 2 }
@@ -175,7 +183,7 @@ final class CfmotoOutput {
                         // ~250ms of frames; higher-resolution software decode needs a little more slack.
                         self.maximumQueuedFrames = max(6, min(12, profile.fps / 4))
                     }
-                    CfmotoProfile.saveNegotiatedDisplaySize(width: size.width, height: size.height)
+                    profile.saveNegotiatedDisplaySize(width: size.width, height: size.height)
                     onMediaSize(size.width, size.height)
                     report("仪表已连接，等待 CarPlay 画面…")
                     var first = true
