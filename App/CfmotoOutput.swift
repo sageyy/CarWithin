@@ -22,6 +22,35 @@ struct CfmotoProfile: Equatable {
     static let zhangxue820RR = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "张雪 820RR")
     static let zhangxue820R = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "张雪 820R")
 
+    /// 合并后的自适应入口：初始按 1024×515 规划画面，连上仪表后改用握手上报的尺寸。
+    static let adaptive = CfmotoProfile(width: 1024, height: 515, fps: 30, bitrate: 4_500_000, label: "春风/张雪仪表")
+
+    /// 按实际编码像素数推导码率：以 1024×515 @ 4.5Mbps 为基准，限制在 3–12Mbps。
+    static func bitrate(for width: Int, height: Int) -> Int {
+        let pixels = Double(max(1, width * height))
+        let scaled = 4_500_000.0 * pixels / (1024.0 * 515.0)
+        return min(12_000_000, max(3_000_000, Int(scaled)))
+    }
+
+    /// 上次握手成功记录的仪表尺寸，供下次启动 CarPlay 前规划原生分辨率。
+    static var negotiatedDisplaySize: (width: Int, height: Int)? {
+        let defaults = UserDefaults.standard
+        let width = defaults.integer(forKey: "cfmotoMediaWidth")
+        let height = defaults.integer(forKey: "cfmotoMediaHeight")
+        guard (320...3840).contains(width), (320...3840).contains(height),
+              width % 2 == 0, height % 2 == 0, width * height <= 3840 * 2160 else { return nil }
+        return (width, height)
+    }
+
+    static func saveNegotiatedDisplaySize(width: Int, height: Int) {
+        let safeWidth = min(3840, max(320, width - width % 2))
+        let safeHeight = min(3840, max(320, height - height % 2))
+        guard safeWidth * safeHeight <= 3840 * 2160 else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(safeWidth, forKey: "cfmotoMediaWidth")
+        defaults.set(safeHeight, forKey: "cfmotoMediaHeight")
+    }
+
     var encodeWidth: Int { width - width % 2 }
     var encodeHeight: Int { height % 2 == 0 ? height : height + 1 }
     var title: String { "\(width)×\(height)" }
@@ -47,11 +76,13 @@ final class CfmotoOutput {
 
     func start(localAddress: String, targetAddress: String, phone: TailingPhoneInfo, profile: CfmotoProfile,
                onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
-               requestKeyframe: @escaping () -> Void) {
+               requestKeyframe: @escaping () -> Void,
+               onMediaSize: @escaping (Int, Int) -> Void) {
         stop()
         let next = Session(queue: queue, localAddress: localAddress, targetAddress: targetAddress,
                            phone: phone, profile: profile,
-                           onState: onState, onLog: onLog, requestKeyframe: requestKeyframe)
+                           onState: onState, onLog: onLog, requestKeyframe: requestKeyframe,
+                           onMediaSize: onMediaSize)
         sessionLock.lock()
         session = next
         sessionLock.unlock()
@@ -81,12 +112,16 @@ final class CfmotoOutput {
         let onState: (String) -> Void
         let onLog: (String) -> Void
         let requestKeyframe: () -> Void
+        let onMediaSize: (Int, Int) -> Void
         private let lock = NSLock()
         private var cancelled = false
         private var acceptingFrames = true
         private var queued = 0
         private var queuedBytes = 0
-        private let maximumQueuedBytes = 4 * 1024 * 1024
+        /// ~300ms of input at the negotiated bitrate, clamped to 1–6MB. Recomputed on handshake.
+        private var maximumQueuedBytes = 4 * 1024 * 1024
+        /// ~250ms of frames at the profile FPS; avoids early skipping on high-resolution software decode.
+        private var maximumQueuedFrames = 6
         private var skipping = false
         private var decoded: CVPixelBuffer?
         private var decodeError: Error?
@@ -94,29 +129,32 @@ final class CfmotoOutput {
 
         private var encodeWidth: Int
         private var encodeHeight: Int
+        private var bitrate: Int
         private let connection: PxcConnection
         private var decoder: TailingH264Decoder?
         private var encoder: H264Encoder?
         private var parameters = VideoParameterSets(codec: .h264)
         private var waitingForIDR = true
         private var latest: CVPixelBuffer?
-        private lazy var compositor = CIContext(options: [.useSoftwareRenderer: true, .cacheIntermediates: false])
+        private lazy var compositor = AdaptiveCompositor()
         private var lastKeyframe = -Double.infinity
         private var lastCodecFailure = -Double.infinity
         private var status = ""
 
         init(queue: DispatchQueue, localAddress: String, targetAddress: String, phone: TailingPhoneInfo,
              profile: CfmotoProfile, onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
-             requestKeyframe: @escaping () -> Void) {
+             requestKeyframe: @escaping () -> Void, onMediaSize: @escaping (Int, Int) -> Void) {
             self.queue = queue
             self.profile = profile
             self.encodeWidth = profile.pxcWidth
             self.encodeHeight = profile.pxcHeight
+            self.bitrate = profile.bitrate
             self.connection = PxcConnection(localIP: localAddress, targetIP: targetAddress,
                                             phone: phone, dashboard: profile.label, log: onLog)
             self.onState = onState
             self.onLog = onLog
             self.requestKeyframe = requestKeyframe
+            self.onMediaSize = onMediaSize
         }
 
         func start() {
@@ -129,7 +167,16 @@ final class CfmotoOutput {
                     queue.sync {
                         self.encodeWidth = size.width
                         self.encodeHeight = size.height
+                        let rate = CfmotoProfile.bitrate(for: size.width, height: size.height)
+                        self.bitrate = rate
+                        // 300ms of input bytes; 1–6MB keeps memory bounded even at 12Mbps.
+                        let windowBytes = rate / 8 * 3 / 10
+                        self.maximumQueuedBytes = max(1024 * 1024, min(6 * 1024 * 1024, windowBytes))
+                        // ~250ms of frames; higher-resolution software decode needs a little more slack.
+                        self.maximumQueuedFrames = max(6, min(12, profile.fps / 4))
                     }
+                    CfmotoProfile.saveNegotiatedDisplaySize(width: size.width, height: size.height)
+                    onMediaSize(size.width, size.height)
                     report("仪表已连接，等待 CarPlay 画面…")
                     var first = true
                     var nextFrame = ProcessInfo.processInfo.systemUptime
@@ -187,7 +234,7 @@ final class CfmotoOutput {
         func append(_ data: Data, keyframe: Bool) {
             let (accepted, needsKeyframe) = lock.withLock {
                 guard !cancelled, acceptingFrames else { return (false, false) }
-                if queued >= 6 || queuedBytes + data.count > maximumQueuedBytes {
+                if queued >= maximumQueuedFrames || queuedBytes + data.count > maximumQueuedBytes {
                     let request = !skipping || queuedBytes > maximumQueuedBytes / 2
                     skipping = true
                     return (false, request)
@@ -203,7 +250,7 @@ final class CfmotoOutput {
             queue.async { [self] in
                 defer { lock.withLock { queued -= 1; queuedBytes = max(0, queuedBytes - data.count) } }
                 guard lock.withLock({ !cancelled && acceptingFrames }) else { return }
-                decode(data, keyframe: keyframe)
+                autoreleasepool { decode(data, keyframe: keyframe) }
             }
         }
 
@@ -258,7 +305,7 @@ final class CfmotoOutput {
                     if encoder == nil {
                         guard now - lastCodecFailure >= 0.5 else { return nil }
                         encoder = try H264Encoder(width: encodeWidth, height: encodeHeight,
-                                                  fps: profile.fps, bitrate: profile.bitrate) { [weak self] result in
+                                                  fps: profile.fps, bitrate: bitrate) { [weak self] result in
                             guard let self else { return }
                             self.lock.withLock { self.encoded = result }
                         }
@@ -305,8 +352,8 @@ final class CfmotoOutput {
                 translationX: (CGFloat(width) - scaled.extent.width) / 2,
                 y: (CGFloat(height) - scaled.extent.height) / 2))
             let bounds = CGRect(x: 0, y: 0, width: width, height: height)
-            compositor.render(positioned.composited(over: CIImage(color: .black)).cropped(to: bounds),
-                              to: buffer, bounds: bounds, colorSpace: CGColorSpaceCreateDeviceRGB())
+            compositor.context.render(positioned.composited(over: CIImage(color: .black)).cropped(to: bounds),
+                                      to: buffer, bounds: bounds, colorSpace: CGColorSpaceCreateDeviceRGB())
             return buffer
         }
 

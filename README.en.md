@@ -10,9 +10,21 @@ CarWithin runs CarPlay on the same iPhone that generates its interface. Use CarP
 
 ## Download and install
 
-- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.14 (build 26)**.
-- Download `CarWithin-1.0.14-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
+- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.16 (build 28)**.
+- Download `CarWithin-1.0.16-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
 - The minimum installation target is iOS/iPadOS 16.0 on arm64; iOS 15 is not supported. Same-device CarPlay, audio, and background behavior still need testing on iOS 16.x hardware. CarWithin uses private iOS interfaces. Compatibility depends on the device, OS version, and signing setup, and OS updates can affect it.
+
+## What is new in 1.0.16
+
+- Frame scaling now uses the GPU in the foreground and falls back to software rendering in the background, reducing CPU and power use at high resolutions while keeping locked-screen output stable.
+- CFMOTO output queues derive their buffer window from the negotiated bitrate and FPS (~300ms bytes / 250ms frames), reducing dropped frames and keyframe recovery at high resolutions.
+- Added `autoreleasepool` to CFMOTO, ZEEHO, Ninebot, and browser decode/input queues to lower peak memory at high bitrates.
+
+## What is new in 1.0.15
+
+- CFMOTO and ZXMOTO dashboards are now a single adaptive option. The size comes from PXC handshake, old model settings migrate automatically, and no per-model menu entries are needed.
+- The dashboard's native size is remembered after the first connection. Later launches plan CarPlay at that size, so the instrument receives a native picture instead of an upscaled one.
+- Encoding bitrate now scales with the negotiated size (3–12 Mbps), so higher-resolution dashboards are no longer capped by a fixed bitrate.
 
 ## What is new in 1.0.14
 

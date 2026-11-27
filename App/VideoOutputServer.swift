@@ -146,7 +146,7 @@ final class VideoOutputServer {
                 queuedInputBytes = max(0, queuedInputBytes - accessUnit.count)
                 inputLock.unlock()
             }
-            appendOnQueue(accessUnit, codec: codec)
+            autoreleasepool { appendOnQueue(accessUnit, codec: codec) }
         }
     }
 

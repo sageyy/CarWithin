@@ -86,7 +86,7 @@ final class NinebotOutput {
         private var parameters = VideoParameterSets(codec: .h264)
         private var waitingForIDR = true
         private var latest: CVPixelBuffer?
-        private lazy var compositor = CIContext(options: [.useSoftwareRenderer: true, .cacheIntermediates: false])
+        private lazy var compositor = AdaptiveCompositor()
         private var fresh = false
         private let origin = ProcessInfo.processInfo.systemUptime
         private var lastFrame = -Double.infinity
@@ -163,7 +163,7 @@ final class NinebotOutput {
             queue.async { [self] in
                 defer { lock.withLock { queued -= 1 } }
                 guard lock.withLock({ !cancelled && acceptingFrames }) else { return }
-                decode(data, keyframe: keyframe)
+                autoreleasepool { decode(data, keyframe: keyframe) }
             }
         }
 
@@ -372,7 +372,7 @@ final class NinebotOutput {
                                              [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &buffer)
             guard status == kCVReturnSuccess, let buffer else { throw ConfigurationError(CWL("无法分配九号缩放画面（{1}）", [String(describing: status)])) }
             let bounds = CGRect(x: 0, y: 0, width: width, height: height)
-            compositor.render(fittedCanvas(image, in: bounds), to: buffer, bounds: bounds, colorSpace: CGColorSpaceCreateDeviceRGB())
+            compositor.context.render(fittedCanvas(image, in: bounds), to: buffer, bounds: bounds, colorSpace: CGColorSpaceCreateDeviceRGB())
             return buffer
         }
 

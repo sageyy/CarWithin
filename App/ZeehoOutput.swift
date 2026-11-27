@@ -68,7 +68,7 @@ final class ZeehoOutput {
         private var parameters = VideoParameterSets(codec: .h264)
         private var waitingForIDR = true
         private var latest: CVPixelBuffer?
-        private lazy var compositor = CIContext(options: [.useSoftwareRenderer: true, .cacheIntermediates: false])
+        private lazy var compositor = AdaptiveCompositor()
         private var fresh = false
         private let origin = ProcessInfo.processInfo.systemUptime
         private var lastFrame = -Double.infinity
@@ -191,7 +191,7 @@ final class ZeehoOutput {
             queue.async { [self] in
                 defer { lock.withLock { queued -= 1 } }
                 guard lock.withLock({ !cancelled && acceptingFrames }) else { return }
-                decode(data, keyframe: keyframe)
+                autoreleasepool { decode(data, keyframe: keyframe) }
             }
         }
 
@@ -378,8 +378,8 @@ final class ZeehoOutput {
                 translationX: destination.minX - scaled.extent.minX,
                 y: destination.minY - scaled.extent.minY))
             let bounds = CGRect(x: 0, y: 0, width: width, height: height)
-            compositor.render(positioned.composited(over: CIImage(color: .black)).cropped(to: bounds),
-                              to: buffer, bounds: bounds, colorSpace: CGColorSpaceCreateDeviceRGB())
+            compositor.context.render(positioned.composited(over: CIImage(color: .black)).cropped(to: bounds),
+                                      to: buffer, bounds: bounds, colorSpace: CGColorSpaceCreateDeviceRGB())
             return buffer
         }
 
