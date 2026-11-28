@@ -20,9 +20,14 @@ enum WiFiCredentials {
         isTemporary(for: ssid) ? temporaryNotice : CWL("Wi-Fi 密码已保存到 Keychain")
     }
 
+    private static let wifiService = "local.tds.carkit.wifi"
+    // Background auto-join runs while the screen is locked, so the password needs to stay
+    // readable after the first unlock. Existing WhenUnlocked items are migrated on read/save.
+    private static let wifiAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
+
     private static func query(_ ssid: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: "local.tds.carkit.wifi",
+         kSecAttrService as String: wifiService,
          kSecAttrAccount as String: ssid]
     }
     static func password(for ssid: String) throws -> String? {
@@ -31,19 +36,29 @@ enum WiFiCredentials {
         let temporary = temporaryPasswords[ssid]
         temporaryLock.unlock()
         if let temporary { return temporary }
-        var lookup = query(ssid); lookup[kSecReturnData as String] = true
+        var lookup = query(ssid)
+        lookup[kSecReturnData as String] = true
+        lookup[kSecReturnAttributes as String] = true
         var result: CFTypeRef?
         let status = SecItemCopyMatching(lookup as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data,
-              let password = String(data: data, encoding: .utf8) else {
+        guard status == errSecSuccess else {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+        guard let item = result as? [String: Any],
+              let data = item[kSecValueData as String] as? Data,
+              let password = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(errSecDecode))
+        }
+        if (item[kSecAttrAccessible as String] as? String) != wifiAccessibility {
+            _ = SecItemUpdate(query(ssid) as CFDictionary,
+                              [kSecAttrAccessible as String: wifiAccessibility] as CFDictionary)
         }
         return password
     }
     static func save(_ password: String, for ssid: String) throws {
         let attributes: [String: Any] = [kSecValueData as String: Data(password.utf8),
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
+            kSecAttrAccessible as String: wifiAccessibility]
         var status = SecItemUpdate(query(ssid) as CFDictionary, attributes as CFDictionary)
         if status == errSecItemNotFound {
             status = SecItemAdd(query(ssid).merging(attributes) { _, value in value } as CFDictionary, nil)

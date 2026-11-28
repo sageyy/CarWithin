@@ -1092,8 +1092,22 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         guard !ssid.isEmpty else {
             log(CWL("自动加入 Wi-Fi 跳过：未配置仪表 Wi-Fi 预设")); toggleReceiver(); return
         }
-        let password = (try? WiFiCredentials.password(for: ssid)) ?? ""
-        let isOpen = WiFiPresetStore.selected()?.isOpen ?? (openNetworkSwitch.isOn || password.isEmpty)
+        let isOpen = WiFiPresetStore.selected()?.isOpen ?? openNetworkSwitch.isOn
+        let password: String
+        do {
+            password = try WiFiCredentials.password(for: ssid) ?? ""
+        } catch {
+            let detail: String
+            let nsError = error as NSError
+            if nsError.domain == NSOSStatusErrorDomain && nsError.code == Int(errSecInteractionNotAllowed) {
+                detail = CWL("系统锁屏，Keychain 暂不可读")
+            } else {
+                detail = nsError.localizedDescription
+            }
+            log(CWL("读取仪表 Wi-Fi 密码失败（{1}），跳过 App 自动加入，改用系统 Wi-Fi 连接", [detail]))
+            toggleReceiver()
+            return
+        }
         log(CWL("自动加入仪表 Wi-Fi：{1}", [ssid]))
         WiFiAutoJoin.join(ssid: ssid, password: password, isOpen: isOpen) { [weak self] result in
             guard let self else { return }
@@ -1106,6 +1120,17 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 }
             case .failure(let error):
                 self.log(CWL("自动加入 Wi-Fi 失败（{1}），改用系统 Wi-Fi 连接", [WiFiAutoJoin.describe(error)]))
+                if WiFiAutoJoin.isPasswordError(error) {
+                    WiFiAutoJoin.removeSavedConfiguration(forSSID: ssid)
+                    do {
+                        try WiFiCredentials.forget(ssid)
+                        self.passwordLoadedForSSID = nil
+                        self.passwordField.text = ""
+                        self.passwordStatus.text = CWL("Wi-Fi 密码错误，已清除错误配置，请重新输入。")
+                    } catch {
+                        self.log(CWL("清除错误 Wi-Fi 密码失败：{1}", [String(describing: error.localizedDescription)]))
+                    }
+                }
                 self.toggleReceiver()
             }
         }

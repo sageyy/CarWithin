@@ -9,14 +9,19 @@ enum WiFiAutoJoin {
         guard !ssid.isEmpty else {
             completion(.failure(JoinError.missingSSID)); return
         }
+        // An empty passphrase must never be turned into an open-network configuration:
+        // iOS would reject it as a wrong password and could persist a broken hotspot config.
+        guard isOpen || !password.isEmpty else {
+            completion(.failure(JoinError.missingPassword)); return
+        }
         let configuration: NEHotspotConfiguration
-        if isOpen || password.isEmpty {
+        if isOpen {
             configuration = NEHotspotConfiguration(ssid: ssid)
         } else {
             configuration = NEHotspotConfiguration(ssid: ssid, passphrase: password, isWEP: false)
         }
-        // Do not remove the configuration after joining: keep it like a user-added network.
-        configuration.joinOnce = false
+        // Join only for this session; do not overwrite the system's saved Wi-Fi password.
+        configuration.joinOnce = true
         NEHotspotConfigurationManager.shared.apply(configuration) { error in
             DispatchQueue.main.async {
                 if let error {
@@ -28,9 +33,22 @@ enum WiFiAutoJoin {
         }
     }
 
+    static func removeSavedConfiguration(forSSID ssid: String) {
+        guard !ssid.isEmpty else { return }
+        NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: ssid)
+    }
+
+    static func isPasswordError(_ error: Error) -> Bool {
+        switch (error as NSError).code {
+        case 8, 21: return true
+        default: return false
+        }
+    }
+
     /// 把 NEHotspotConfigurationError 的 code 翻译成可读信息，便于判断是权限、后台
     /// 限制还是密码错误。直接用 raw code 映射，避免 Swift 版本间 enum case 差异。
     static func describe(_ error: Error) -> String {
+        if let joinError = error as? JoinError { return joinError.localizedDescription }
         let nsError = error as NSError
         let code = nsError.code
         let detail: String
@@ -52,6 +70,12 @@ enum WiFiAutoJoin {
 
     enum JoinError: LocalizedError {
         case missingSSID
-        var errorDescription: String? { "Wi-Fi 名称为空" }
+        case missingPassword
+        var errorDescription: String? {
+            switch self {
+            case .missingSSID: return CWL("Wi-Fi 名称为空")
+            case .missingPassword: return CWL("Wi-Fi 密码未读取到，为避免写入错误密码已跳过 App 自动加入")
+            }
+        }
     }
 }
