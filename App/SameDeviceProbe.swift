@@ -41,11 +41,11 @@ final class SameDeviceProbe {
                     try self.transport.send(syn.encoded())
                 } catch { self.finish(CWL("本机传输写入失败：{1}", [String(describing: error.localizedDescription)])) }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
                 guard let self, self.active, self.generation == run, !self.requested else { return }
                 self.finish(CWL("会话启动超时（链路={1}，认证={2}，识别={3}）", [String(describing: self.linked), String(describing: self.authenticated), String(describing: self.identified)]))
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 25) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in
                 guard let self, self.active, self.generation == run, self.expectsLocalControl, !self.controlConnected else { return }
                 self.finish(CWL("未收到 CarPlay 控制连接，请检查 Wi-Fi 名称和密码后重试。兼容信道通常可保持默认值。"))
             }
@@ -139,7 +139,7 @@ final class SameDeviceProbe {
             try requestSession(configuration)
             if !requested && expectsLocalControl {
                 let run = generation
-                for delay in [1.5, 3.0, 4.5] {
+                for delay in [3.0, 6.0, 9.0] {
                     DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                         guard let self, self.active, self.generation == run, !self.controlConnected else { return }
                         do { try self.requestSession(configuration) }

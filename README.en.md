@@ -10,14 +10,9 @@ CarWithin runs CarPlay on the same iPhone that generates its interface. Use CarP
 
 ## Download and install
 
-- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.26 (build 38)**.
-- Download `CarWithin-1.0.26-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
+- [Download from GitHub Releases](https://github.com/xmz28/CarWithin/releases/latest). The current version is **1.0.25 (build 37)**.
+- Download `CarWithin-1.0.25-unsigned.ipa` and sign and install it with an IPA sideloading tool using your own signing setup. Follow any iOS prompts for developer trust or Developer Mode.
 - The minimum installation target is iOS/iPadOS 16.0 on arm64; iOS 15 is not supported. Same-device CarPlay, audio, and background behavior still need testing on iOS 16.x hardware. CarWithin uses private iOS interfaces. Compatibility depends on the device, OS version, and signing setup, and OS updates can affect it.
-
-## What is new in 1.0.26
-
-- Vehicle disconnects, auto-reconnect, Wi-Fi waiting, and successful recovery now show a prominent color-coded banner at the top of the screen.
-- Reduced reconnect throttling, startup delays, IP wait time, and iAP2 session timeouts so CarPlay recovers faster after a bike restart.
 
 ## What is new in 1.0.25
 

@@ -220,19 +220,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let heading = UILabel()
     private let explanation = UILabel()
     private let statusLabel = UILabel()
-    private let statusIcon = UIImageView(image: UIImage(systemName: "circle.fill"))
-    private let statusRow = UIStackView()
-    private enum StatusTone {
-        case normal, connecting, warning, success, error
-        var color: UIColor {
-            switch self {
-            case .normal: return .systemBlue
-            case .connecting, .warning: return .systemOrange
-            case .success: return .systemGreen
-            case .error: return .systemRed
-            }
-        }
-    }
     private let startupHint = UILabel()
     private var startupHintTask: DispatchWorkItem?
     private var startupHintGeneration = UUID()
@@ -488,13 +475,13 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         heroIcon.heightAnchor.constraint(equalToConstant: 48).isActive = true
         let titleStack = UIStackView(arrangedSubviews: [heroIcon, heading])
         titleStack.axis = .horizontal; titleStack.alignment = .center; titleStack.spacing = 14
+        let statusIcon = UIImageView(image: UIImage(systemName: "circle.fill"))
         statusIcon.tintColor = .systemBlue
         statusIcon.contentMode = .scaleAspectFit
         statusIcon.widthAnchor.constraint(equalToConstant: 9).isActive = true
         statusIcon.heightAnchor.constraint(equalToConstant: 9).isActive = true
+        let statusRow = UIStackView(arrangedSubviews: [statusIcon, statusLabel])
         statusRow.axis = .horizontal; statusRow.alignment = .center; statusRow.spacing = 8
-        statusRow.addArrangedSubview(statusIcon)
-        statusRow.addArrangedSubview(statusLabel)
         statusRow.isLayoutMarginsRelativeArrangement = true
         statusRow.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
         statusRow.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.1)
@@ -720,7 +707,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 try self.videoSurface.enqueue(accessUnit: data, codec: codec)
                 if !self.displayedVideo {
                     self.inlineVideoContainer.isHidden = false
-                    self.displayedVideo = true; self.setStatus(CWL("正在显示 CarPlay"), tone: .success)
+                    self.displayedVideo = true; self.statusLabel.text = CWL("正在显示 CarPlay")
                     self.clearStartupHint()
                     self.networkStartupTask?.cancel()
                     self.networkStartupTask = nil
@@ -732,7 +719,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 }
                 self.pictureInPicture.sourceMayBeReady()
             } catch {
-                self.setStatus(CWL("视频显示异常"), tone: .error)
+                self.statusLabel.text = CWL("视频显示异常")
                 self.log(CWL("视频显示失败：{1}", [String(describing: error.localizedDescription)]))
             }
         }
@@ -764,21 +751,17 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
         receiver.onCfmotoMediaSize = { [weak self] width, height in
             guard let self else { return }
-            if self.cfmotoReconnectCount > 0 {
-                self.setStatus(CWL("仪表已重新连接，正在恢复 CarPlay"), tone: .success)
-            }
             self.cfmotoReconnectCount = 0
             self.adaptToCfmotoMediaSize(width: width, height: height)
         }
         receiver.onCfmotoConnectionFailed = { [weak self] in
             guard let self, self.running, !self.userStopped, self.autoStartSwitch.isOn else { return }
             guard self.cfmotoReconnectCount < 8 else {
-                self.setStatus(CWL("仪表连接失败次数过多，请手动重启连接"), tone: .error)
                 self.log(CWL("仪表链路连续重连 8 次仍失败，停止自动重试"))
                 return
             }
             self.cfmotoReconnectCount += 1
-            self.requestAutoReconnect(reason: "仪表链路中断", delay: 1.2, needsStop: true)
+            self.requestAutoReconnect(reason: "仪表链路中断", delay: 3, needsStop: true)
         }
         receiver.onNinebotState = { [weak self] message in
             guard let self, self.running, self.outputMode.ninebotMode != nil else { return }
@@ -844,18 +827,18 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             let shouldReconnect = self.autoStartSwitch.isOn
             self.stop()  // 清理会话，running 置 false
             if shouldReconnect, self.keepAliveSwitch.isOn { self.keepAlive.start() }
-            self.setStatus(shouldReconnect
-                ? CWL("仪表已断开，正在自动重连…") : CWL("仪表已断开"), tone: .warning)
+            self.statusLabel.text = shouldReconnect
+                ? CWL("仪表已断开，等待重新连接…") : CWL("仪表已断开")
             guard shouldReconnect else { return }
-            self.requestAutoReconnect(reason: "事件通道断开", delay: 1.2, needsStop: false)
+            self.requestAutoReconnect(reason: "事件通道断开", delay: 3, needsStop: false)
         }
         bluetooth.onFailure = { [weak self] message in
             self?.stop()
-            self?.setStatus(message, tone: .error)
+            self?.statusLabel.text = message
         }
         bluetooth.onAdvertising = { [weak self] in
             guard let self, self.running else { return }
-            self.setStatus(CWL("蓝牙广播已开启，正在等待 iPhone"), tone: .connecting)
+            self.statusLabel.text = CWL("蓝牙广播已开启，正在等待 iPhone")
         }
         controlBrowser.onLog = { [weak self] in self?.log($0) }
         receiverBrowser.onLog = { [weak self] in self?.log($0) }
@@ -875,19 +858,19 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         sameDevice.onStage = { [weak self] message in
             guard let self, self.running, !self.displayedVideo else { return }
             if self.modeControl.selectedSegmentIndex == 2 {
-                self.setStatus(CWL("正在连接 iPad…"), tone: .connecting)
+                self.statusLabel.text = CWL("正在连接 iPad…")
             } else {
-                self.setStatus(CWL("正在连接 CarPlay…"), tone: .connecting)
+                self.statusLabel.text = CWL("正在连接 CarPlay…")
                 self.scheduleStartupHint()
             }
         }
         sameDevice.onLog = { [weak self] in self?.log($0) }
         sameDevice.onFinished = { [weak self] message in
             self?.stop()
-            self?.setStatus(message, tone: .warning)
+            self?.statusLabel.text = message
             guard let self, self.autoStartSwitch.isOn, !self.userStopped, self.autoStartAttempted else { return }
             if self.keepAliveSwitch.isOn { self.keepAlive.start() }
-            self.requestAutoReconnect(reason: "CarPlay 会话结束", delay: 1.2, needsStop: false)
+            self.requestAutoReconnect(reason: "CarPlay 会话结束", delay: 3, needsStop: false)
         }
         #if DEBUG
         // Clears screens recorded by automated tests with a simulated browser.
@@ -907,7 +890,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 guard self.instrumentWiFiReady() else { return }
                 // 后台熄屏时无保活 App 会被挂起，留给回前台重连。
                 if UIApplication.shared.applicationState != .active, !self.keepAliveSwitch.isOn { return }
-                self.requestAutoReconnect(reason: "仪表 Wi-Fi 已恢复", delay: 1, needsStop: false)
+                self.requestAutoReconnect(reason: "仪表 Wi-Fi 已恢复", delay: 2, needsStop: false)
             }
         }
         wifiPathMonitor.start(queue: DispatchQueue(label: "CarWithin.wifiPath"))
@@ -1099,13 +1082,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
     @objc private func autoJoinWiFiChanged() {
         UserDefaults.standard.set(autoJoinWiFiSwitch.isOn, forKey: "autoJoinWiFi")
-    }
-
-    private func setStatus(_ text: String, tone: StatusTone = .normal) {
-        statusLabel.text = text
-        statusLabel.textColor = tone.color
-        statusIcon.tintColor = tone.color
-        statusRow.backgroundColor = tone.color.withAlphaComponent(tone == .normal ? 0.1 : 0.16)
     }
 
     /// Try to join the saved dashboard Wi-Fi, then start casting. If the signing identity
@@ -1870,12 +1846,12 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         modeControl.isEnabled = false
         setEditing(false)
         startButton.setTitle(CWL("取消连接"), for: .normal)
-        setStatus(CWL("正在等待仪表 Wi-Fi 分配 IP 地址…"), tone: .connecting)
+        statusLabel.text = CWL("正在等待 Wi-Fi 分配 IP 地址…")
         networkStartupTask?.cancel()
         networkStartupTask = Task { [weak self] in
             var candidate: String?
-            for _ in 0..<24 {
-                try? await Task.sleep(nanoseconds: 250_000_000)
+            for _ in 0..<20 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled, let self else { return }
                 let address = self.localCarPlayAddress
                 // 后台保活时也允许等 IP 后自动重连（熄火重启场景）；地址需连续两次一致。
@@ -1892,7 +1868,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             }
             guard let self else { return }
             self.stop()
-            self.setStatus(CWL("未获得 Wi-Fi 地址。请连接正确的 Wi-Fi 后重试。"), tone: .error)
+            self.statusLabel.text = CWL("未获得 Wi-Fi 地址。请连接正确的 Wi-Fi 后重试。")
         }
     }
 
@@ -1902,8 +1878,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             var candidate: String?
             var stableSamples = 0
             var lostAddress = false
-            for _ in 0..<40 {
-                try? await Task.sleep(nanoseconds: 250_000_000)
+            for _ in 0..<90 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled, let self, self.running, !self.displayedVideo else { return }
                 let address = self.localCarPlayAddress
                 self.refreshNetworkAddresses()
@@ -1913,7 +1889,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 guard let address, address != initialAddress || lostAddress, stableSamples >= 3,
                       self.networkRestartCount < 2, UIApplication.shared.applicationState == .active else { continue }
                 self.networkRestartCount += 1
-                self.setStatus(CWL("网络已恢复，正在重新连接 CarPlay…"), tone: .connecting)
                 self.log(CWL("启动期间 Wi-Fi 已切换或恢复，使用当前地址重新连接 CarPlay"))
                 self.stop()
                 self.restartingAutomatically = true
@@ -1958,7 +1933,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         modeControl.isEnabled = true
         UIApplication.shared.isIdleTimerDisabled = false; setEditing(true)
         modeChanged()
-        setStatus(identity == nil ? CWL("需要导入 MFi 身份") : CWL("已停止"), tone: .normal)
+        statusLabel.text = identity == nil ? CWL("需要导入 MFi 身份") : CWL("已停止")
         log(CWL("CarPlay 接收已停止"))
     }
 
@@ -1967,12 +1942,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         guard autoStartSwitch.isOn, !userStopped else { return }
         // 已有重连在执行就不打断；Wi-Fi 抖动产生的连续回调直接忽略。
         if reconnectInFlight { return }
-        if let last = lastReconnectRequestAt, Date().timeIntervalSince(last) < 2 { return }
+        if let last = lastReconnectRequestAt, Date().timeIntervalSince(last) < 5 { return }
         lastReconnectRequestAt = Date()
         reconnectInFlight = true
         reconnectGeneration += 1
         let generation = reconnectGeneration
-        setStatus(CWL("{1}，正在自动重连…", [reason]), tone: .warning)
         autoReconnectWork?.cancel()
         autoReconnectWork = Task { [weak self] in
             defer { Task { @MainActor in self?.reconnectInFlight = false } }
@@ -1983,12 +1957,10 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             let keep = self.keepAliveSwitch.isOn
             if needsStop, self.running { self.stop() }
             if keep { self.keepAlive.start() }
-            self.setStatus(CWL("正在重新连接仪表…"), tone: .connecting)
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled, generation == self.reconnectGeneration,
                   self.autoStartSwitch.isOn, !self.userStopped, !self.running else { return }
             guard self.instrumentWiFiReady() else {
-                self.setStatus(CWL("仪表 Wi-Fi 未连接，等待网络恢复后自动重连"), tone: .error)
                 self.log(CWL("iPhone 未连接仪表 Wi-Fi，等待网络恢复后再重连"))
                 return
             }
@@ -2257,7 +2229,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             if !waitingForNetwork { modeChanged() }
             // 熄火等被动断开后回到前台，若自动启动开启则重连。
             if autoStartSwitch.isOn, !userStopped, autoStartAttempted {
-                requestAutoReconnect(reason: "回到前台", delay: 0.6, needsStop: false)
+                requestAutoReconnect(reason: "回到前台", delay: 1, needsStop: false)
             }
             return
         }
