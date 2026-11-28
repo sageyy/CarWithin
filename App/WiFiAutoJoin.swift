@@ -33,6 +33,19 @@ enum WiFiAutoJoin {
         }
     }
 
+    static func isPasswordError(_ error: Error) -> Bool {
+        switch (error as NSError).code {
+        case 8, 21: return true
+        default: return false
+        }
+    }
+
+    /// 只移除 App 通过 Hotspot Configuration 写入的配置；不影响用户在系统设置里保存的网络。
+    static func removeSavedConfiguration(forSSID ssid: String) {
+        guard !ssid.isEmpty else { return }
+        NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: ssid)
+    }
+
     /// 把 NEHotspotConfigurationError 的 code 翻译成可读信息，便于判断是权限、后台
     /// 限制还是密码错误。直接用 raw code 映射，避免 Swift 版本间 enum case 差异。
     static func describe(_ error: Error) -> String {
