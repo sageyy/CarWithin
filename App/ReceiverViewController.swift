@@ -1092,6 +1092,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         guard !ssid.isEmpty else {
             log(CWL("自动加入 Wi-Fi 跳过：未配置仪表 Wi-Fi 预设")); toggleReceiver(); return
         }
+        if outputMode.cfmoto && instrumentWiFiReady() {
+            log(CWL("已连接仪表 Wi-Fi（{1}），跳过 App 自动加入", [ReceiverConfiguration.wifiIPv4Address() ?? ""]))
+            toggleReceiver()
+            return
+        }
         let isOpen = WiFiPresetStore.selected()?.isOpen ?? openNetworkSwitch.isOn
         let password: String
         do {
@@ -1120,17 +1125,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 }
             case .failure(let error):
                 self.log(CWL("自动加入 Wi-Fi 失败（{1}），改用系统 Wi-Fi 连接", [WiFiAutoJoin.describe(error)]))
-                if WiFiAutoJoin.isPasswordError(error) {
-                    WiFiAutoJoin.removeSavedConfiguration(forSSID: ssid)
-                    do {
-                        try WiFiCredentials.forget(ssid)
-                        self.passwordLoadedForSSID = nil
-                        self.passwordField.text = ""
-                        self.passwordStatus.text = CWL("Wi-Fi 密码错误，已清除错误配置，请重新输入。")
-                    } catch {
-                        self.log(CWL("清除错误 Wi-Fi 密码失败：{1}", [String(describing: error.localizedDescription)]))
-                    }
-                }
                 self.toggleReceiver()
             }
         }

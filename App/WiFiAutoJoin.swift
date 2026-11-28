@@ -20,8 +20,8 @@ enum WiFiAutoJoin {
         } else {
             configuration = NEHotspotConfiguration(ssid: ssid, passphrase: password, isWEP: false)
         }
-        // Join only for this session; do not overwrite the system's saved Wi-Fi password.
-        configuration.joinOnce = true
+        // Persist a correct configuration like a user-added network so iOS can auto-join it too.
+        configuration.joinOnce = false
         NEHotspotConfigurationManager.shared.apply(configuration) { error in
             DispatchQueue.main.async {
                 if let error {
@@ -30,18 +30,6 @@ enum WiFiAutoJoin {
                     completion(.success(()))
                 }
             }
-        }
-    }
-
-    static func removeSavedConfiguration(forSSID ssid: String) {
-        guard !ssid.isEmpty else { return }
-        NEHotspotConfigurationManager.shared.removeConfiguration(forSSID: ssid)
-    }
-
-    static func isPasswordError(_ error: Error) -> Bool {
-        switch (error as NSError).code {
-        case 8, 21: return true
-        default: return false
         }
     }
 

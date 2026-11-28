@@ -38,19 +38,21 @@ enum WiFiCredentials {
         if let temporary { return temporary }
         var lookup = query(ssid)
         lookup[kSecReturnData as String] = true
-        lookup[kSecReturnAttributes as String] = true
+        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(lookup as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-        }
-        guard let item = result as? [String: Any],
-              let data = item[kSecValueData as String] as? Data,
+        guard status == errSecSuccess, let data = result as? Data,
               let password = String(data: data, encoding: .utf8) else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(errSecDecode))
+            throw NSError(domain: NSOSStatusErrorDomain, code: status == errSecSuccess ? Int(errSecDecode) : Int(status))
         }
-        if (item[kSecAttrAccessible as String] as? String) != wifiAccessibility {
+        var attributesLookup = query(ssid)
+        attributesLookup[kSecReturnAttributes as String] = true
+        attributesLookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        var attributesResult: CFTypeRef?
+        if SecItemCopyMatching(attributesLookup as CFDictionary, &attributesResult) == errSecSuccess,
+           let attributes = attributesResult as? [String: Any],
+           (attributes[kSecAttrAccessible as String] as? String) != wifiAccessibility {
             _ = SecItemUpdate(query(ssid) as CFDictionary,
                               [kSecAttrAccessible as String: wifiAccessibility] as CFDictionary)
         }
